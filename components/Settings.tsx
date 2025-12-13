@@ -3,6 +3,7 @@ import { useAppContext } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { isMockMode } from '../firebase';
 
+// --- Icons ---
 const DownloadIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
 );
@@ -47,6 +48,19 @@ const LogOutIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
 );
 
+const TagIcon = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94 .94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/></svg>
+);
+
+const TrashIcon = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+);
+
+const RefreshIcon = ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+);
+
+
 const Settings = () => {
   const { 
     transactions, 
@@ -60,7 +74,12 @@ const Settings = () => {
     leaveLedger,
     updateLedgerAlias,
     isDarkMode,
-    toggleTheme
+    toggleTheme,
+    // ✅ 新增
+    categories,
+    addCategory,
+    deleteCategory,
+    resetCategories
   } = useAppContext();
   const { signOut } = useAuth();
   
@@ -72,6 +91,9 @@ const Settings = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [editingLedgerId, setEditingLedgerId] = useState<string | null>(null);
   const [tempAlias, setTempAlias] = useState('');
+
+  // New Category State
+  const [newCategory, setNewCategory] = useState('');
 
   // --- Manage Ledgers ---
   const handleCreateLedger = async (e: React.FormEvent) => {
@@ -126,6 +148,33 @@ const Settings = () => {
       }
   };
 
+  // --- Category Logic ---
+  const handleAddCategory = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newCategory.trim()) return;
+      if (categories.includes(newCategory.trim())) {
+          showMsg('error', '此分類已存在');
+          return;
+      }
+      await addCategory(newCategory.trim());
+      setNewCategory('');
+      showMsg('success', '已新增分類');
+  };
+
+  const handleDeleteCategory = async (cat: string) => {
+      if (window.confirm(`確定要刪除「${cat}」分類嗎？\n(注意：舊的交易紀錄不會被刪除，但以後無法選擇此分類)`)) {
+          await deleteCategory(cat);
+          showMsg('success', '已刪除分類');
+      }
+  };
+
+  const handleResetCategories = async () => {
+      if (window.confirm('確定要重置為預設分類嗎？\n這將移除所有自訂分類。')) {
+          await resetCategories();
+          showMsg('success', '已重置分類');
+      }
+  };
+
   // --- Export Logic ---
   const handleExportJSON = () => {
     const backupData = {
@@ -133,7 +182,7 @@ const Settings = () => {
       users: users,
       transactions: transactions
     };
-    downloadFile(JSON.stringify(backupData, null, 2), `duoledger_backup_${getDateStr()}.json`, 'application/json');
+    downloadFile(JSON.stringify(backupData, null, 2), `CloudLedger_backup_${getDateStr()}.json`, 'application/json');
     showMsg('success', '完整備份 (JSON) 匯出成功！');
   };
 
@@ -158,7 +207,7 @@ const Settings = () => {
     });
 
     const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
-    downloadFile(csvContent, `duoledger_transactions_${getDateStr()}.csv`, 'text/csv;charset=utf-8;');
+    downloadFile(csvContent, `CloudLedger_transactions_${getDateStr()}.csv`, 'text/csv;charset=utf-8;');
     showMsg('success', '交易紀錄 (CSV) 匯出成功！');
   };
 
@@ -318,6 +367,59 @@ const Settings = () => {
           </div>
       </div>
 
+      {/* ✅ Category Management Section (New!) */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm border border-slate-100 dark:border-slate-800">
+          <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                  <TagIcon className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  <h3 className="font-bold text-slate-800 dark:text-slate-100">分類管理</h3>
+              </div>
+              <button 
+                  onClick={handleResetCategories}
+                  className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-colors"
+                  title="重置為預設分類"
+              >
+                  <RefreshIcon className="w-4 h-4" />
+              </button>
+          </div>
+
+          <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                  {categories.map((cat) => (
+                      <div 
+                          key={cat} 
+                          className="group flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-sm text-slate-700 dark:text-slate-300"
+                      >
+                          <span>{cat}</span>
+                          <button 
+                              onClick={() => handleDeleteCategory(cat)}
+                              className="text-slate-400 hover:text-rose-500 opacity-60 hover:opacity-100 transition-all"
+                          >
+                              <TrashIcon className="w-3.5 h-3.5" />
+                          </button>
+                      </div>
+                  ))}
+              </div>
+
+              <form onSubmit={handleAddCategory} className="flex gap-2">
+                  <input 
+                      type="text" 
+                      value={newCategory}
+                      onChange={(e) => setNewCategory(e.target.value)}
+                      placeholder="新增分類 (例如：貓咪用品)"
+                      className="flex-1 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900 outline-none dark:text-white"
+                  />
+                  <button 
+                      type="submit" 
+                      className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition-colors flex items-center gap-1"
+                  >
+                      <PlusIcon className="w-4 h-4" />
+                      新增
+                  </button>
+              </form>
+          </div>
+      </div>
+
       {/* Group Members Section */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm border border-slate-100 dark:border-slate-800">
         <div className="flex items-center justify-between mb-4">
@@ -395,7 +497,7 @@ const Settings = () => {
       </div>
 
       <div className="text-center text-xs text-slate-400 py-4">
-        帳本管家 Cloud Edition v2.1
+        CloudLedger 雲記 v2.2.0 © 2025 KrendStudio
       </div>
     </div>
   );

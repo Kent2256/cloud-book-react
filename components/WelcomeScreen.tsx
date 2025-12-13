@@ -8,9 +8,9 @@ const WelcomeScreen: React.FC = () => {
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
       <div className="bg-white p-8 rounded-2xl shadow-2xl text-center max-w-sm w-full animate-in fade-in zoom-in-95 duration-500">
         <div className="w-20 h-20 mx-auto mb-6 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-3xl">
-          帳
+          記
         </div>
-        <h1 className="text-3xl font-bold text-slate-800 mb-2">帳本管家</h1>
+        <h1 className="text-3xl font-bold text-slate-800 mb-2">CloudLedger 雲記</h1>
         <p className="text-slate-600 mb-8 text-sm">
           您的智慧共享記帳本，輕鬆管理財務。
         </p>

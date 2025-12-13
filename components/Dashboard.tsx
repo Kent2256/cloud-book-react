@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useAppContext } from '../contexts/AppContext';
-import { TransactionType, Category, Transaction } from '../types';
+import { TransactionType } from '../types'; // ❌ 移除 Category 引用
 import { getFinancialAdvice } from '../services/geminiService';
 import { EditTransactionModal } from './TransactionList';
 
@@ -192,16 +192,17 @@ const Dashboard = () => {
     return num.toString();
   };
   
+  // ✅ 修正：改用字串比對，並統一 Dark Mode 樣式
   const getCategoryColor = (cat: string) => {
     switch (cat) {
-      case Category.FOOD: return 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-300';
-      case Category.TRANSPORT: return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300';
-      case Category.SHOPPING: return 'bg-pink-100 text-pink-600 dark:bg-pink-900/40 dark:text-pink-300';
-      case Category.HOUSING: return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300';
-      case Category.SALARY: return 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300';
-      case Category.ENTERTAINMENT: return 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/40 dark:text-yellow-300';
-      case Category.INVESTMENT: return 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/40 dark:text-cyan-300';
-      default: return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400';
+      case '餐飲': return 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400';
+      case '交通': return 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400';
+      case '購物': return 'bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400';
+      case '居住': return 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400';
+      case '薪資': return 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400';
+      case '娛樂': return 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400';
+      case '投資': return 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400';
+      default: return 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300';
     }
   };
   
@@ -219,17 +220,17 @@ const Dashboard = () => {
            <h3 className="font-bold text-slate-800 dark:text-white">收支日曆</h3>
            <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 rounded-lg p-1">
              <button 
-                onClick={() => changeMonth(-1)} 
-                className="p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-colors text-slate-500 dark:text-slate-400"
-                aria-label="上一月"
+               onClick={() => changeMonth(-1)} 
+               className="p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-colors text-slate-500 dark:text-slate-400"
+               aria-label="上一月"
              >
                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
              </button>
              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 w-24 text-center" aria-live="polite">{monthLabel}</span>
              <button 
-                onClick={() => changeMonth(1)} 
-                className="p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-colors text-slate-500 dark:text-slate-400"
-                aria-label="下一月"
+               onClick={() => changeMonth(1)} 
+               className="p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-colors text-slate-500 dark:text-slate-400"
+               aria-label="下一月"
              >
                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
              </button>

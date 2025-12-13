@@ -26,7 +26,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     // 優先檢查模擬模式
     if (isMockMode) {
-      const mockUser = localStorage.getItem('duoledger_mock_user');
+      const mockUser = localStorage.getItem('cloudledger_mock_user');
       if (mockUser) {
         setUser(JSON.parse(mockUser));
       } else {
@@ -40,7 +40,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             emailVerified: true
          };
          setUser(defaultMockUser);
-         localStorage.setItem('duoledger_mock_user', JSON.stringify(defaultMockUser));
+         localStorage.setItem('cloudledger_mock_user', JSON.stringify(defaultMockUser));
       }
       setLoading(false);
       return;
@@ -74,7 +74,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         emailVerified: true
       };
       setUser(mockUser);
-      localStorage.setItem('duoledger_mock_user', JSON.stringify(mockUser));
+      localStorage.setItem('cloudledger_mock_user', JSON.stringify(mockUser));
       setLoading(false);
     }, 500);
   };
@@ -133,7 +133,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signOut = async () => {
     if (isMockMode) {
-      localStorage.removeItem('duoledger_mock_user');
+      localStorage.removeItem('cloudledger_mock_user');
       setUser(null);
       // We do NOT toggle isMockMode back to false automatically to prevent weird loops,
       // but user can refresh to try real firebase again if they want.

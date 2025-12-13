@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Transaction, User, SavedLedger } from '../types';
+import { Transaction, User, SavedLedger, DEFAULT_CATEGORIES } from '../types';
 import { useAuth } from './AuthContext';
 import { db, isMockMode } from '../firebase';
 import { 
@@ -38,14 +38,20 @@ interface AppContextType {
   setSelectedDate: (date: Date | null) => void;
   isDarkMode: boolean;
   toggleTheme: () => void;
+  
+  // ✅ 新增分類管理相關介面
+  categories: string[];
+  addCategory: (category: string) => Promise<void>;
+  deleteCategory: (category: string) => Promise<void>;
+  resetCategories: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const STORAGE_KEY_LEDGER_ID = 'duoledger_ledger_id';
-const MOCK_STORAGE_KEY_TXS = 'duoledger_mock_txs';
-const MOCK_STORAGE_KEY_USER_PROFILE = 'duoledger_mock_profile';
-const STORAGE_KEY_THEME = 'duoledger_theme';
+const STORAGE_KEY_LEDGER_ID = 'cloudledger_ledger_id';
+const MOCK_STORAGE_KEY_TXS = 'cloudledger_mock_txs';
+const MOCK_STORAGE_KEY_USER_PROFILE = 'cloudledger_mock_profile';
+const STORAGE_KEY_THEME = 'cloudledger_theme';
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user: authUser } = useAuth();
@@ -56,6 +62,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   
+  // ✅ 新增：分類狀態 (預設先載入預設值)
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
+
   // Local fallback state
   const [localUsers, setLocalUsers] = useState<User[]>([{
     uid: 'local_user',
@@ -159,29 +168,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setSavedLedgers(currentSavedLedgers);
         }
 
-        // If no lastLedgerId in Cloud, check localStorage or Create New
         if (!targetId) {
            targetId = localStorage.getItem(STORAGE_KEY_LEDGER_ID) || '';
         }
 
         if (targetId) {
-          // Verify access to this ledger
           try {
              const ledgerRef = doc(db, 'ledgers', targetId);
              const ledgerSnap = await getDoc(ledgerRef);
              if (ledgerSnap.exists()) {
                 setLedgerId(targetId);
-                // Ensure it's in saved list if valid
                 if (!currentSavedLedgers.find(l => l.id === targetId)) {
                    const newList = [...currentSavedLedgers, { id: targetId, alias: ledgerSnap.data().name || '未命名帳本', lastAccessedAt: Date.now() }];
                    setSavedLedgers(newList);
                    await syncUserProfile(authUser.uid, { lastLedgerId: targetId, savedLedgers: newList });
                 } else {
-                   // Just update last accessed
                    await syncUserProfile(authUser.uid, { lastLedgerId: targetId });
                 }
              } else {
-                // Invalid ID (deleted?), trigger create new
                 targetId = ''; 
              }
           } catch (e) {
@@ -190,7 +194,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }
         }
 
-        // Create new ledger if absolutely nothing found
         if (!targetId) {
            await createNewLedgerInternal(authUser, '我的帳本', currentSavedLedgers);
         }
@@ -218,7 +221,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
              displayName: user.displayName,
              photoURL: user.photoURL,
              email: user.email
-          }]
+          }],
+          // ✅ 新增：初始化分類清單
+          categories: DEFAULT_CATEGORIES
         };
         await setDoc(newLedgerRef, newLedgerData);
         
@@ -236,7 +241,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
   };
 
-  // --- 2. Sync Ledger Data (Transactions & Members) ---
+  // --- 2. Sync Ledger Data (Transactions & Members & Categories) ---
   useEffect(() => {
     if (!authUser || !ledgerId) return;
 
@@ -262,13 +267,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setTransactions(txs);
     });
 
-    // Listen to Ledger Metadata (Members)
+    // Listen to Ledger Metadata (Members & Categories)
     const ledgerRef = doc(db, 'ledgers', ledgerId);
     const unsubscribeLedger = onSnapshot(ledgerRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.members) {
           setUsers(data.members);
+        }
+        // ✅ 新增：同步分類清單
+        if (data.categories) {
+          setCategories(data.categories);
+        } else {
+          // 如果是舊帳本沒有 categories 欄位，自動補上預設值
+          updateDoc(ledgerRef, { categories: DEFAULT_CATEGORIES });
+          setCategories(DEFAULT_CATEGORIES);
         }
       }
     });
@@ -282,6 +295,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // --- Actions ---
 
+  // ✅ 新增：新增分類
+  const addCategory = async (category: string) => {
+    if (!ledgerId || !db || isMockMode) return; // Mock mode implementation skipped for brevity
+    if (categories.includes(category)) return;
+
+    const newCategories = [...categories, category];
+    setCategories(newCategories); // Optimistic update
+    await updateDoc(doc(db, 'ledgers', ledgerId), { categories: newCategories });
+  };
+
+  // ✅ 新增：刪除分類
+  const deleteCategory = async (category: string) => {
+    if (!ledgerId || !db || isMockMode) return;
+    
+    const newCategories = categories.filter(c => c !== category);
+    setCategories(newCategories); // Optimistic update
+    await updateDoc(doc(db, 'ledgers', ledgerId), { categories: newCategories });
+  };
+
+  // ✅ 新增：重置分類
+  const resetCategories = async () => {
+    if (!ledgerId || !db || isMockMode) return;
+    
+    setCategories(DEFAULT_CATEGORIES);
+    await updateDoc(doc(db, 'ledgers', ledgerId), { categories: DEFAULT_CATEGORIES });
+  };
+
   const createLedger = async (name: string) => {
       if (!authUser) return;
       if (isMockMode) {
@@ -293,15 +333,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const switchLedger = async (id: string) => {
       if (!authUser) return;
-      
-      // Local state update
       setLedgerId(id);
       localStorage.setItem(STORAGE_KEY_LEDGER_ID, id);
-      
-      // Cloud update
       if (!isMockMode && db) {
           await syncUserProfile(authUser.uid, { lastLedgerId: id });
-          // Update last accessed time locally for UI immediately
           const updatedList = savedLedgers.map(l => l.id === id ? { ...l, lastAccessedAt: Date.now() } : l);
           setSavedLedgers(updatedList);
           await syncUserProfile(authUser.uid, { savedLedgers: updatedList });
@@ -313,7 +348,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (isMockMode) {
         const newSaved = savedLedgers.filter(l => l.id !== id);
         setSavedLedgers(newSaved);
-        // If exiting current
         if (id === ledgerId) {
             if (newSaved.length > 0) switchLedger(newSaved[0].id);
             else alert("這是演示模式最後一個帳本，無法退出。");
@@ -324,14 +358,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!db) return;
     
     try {
-        // 1. Remove from local list & Firestore User Profile
         const newSavedList = savedLedgers.filter(l => l.id !== id);
         setSavedLedgers(newSavedList);
         await syncUserProfile(authUser.uid, { savedLedgers: newSavedList });
 
-        // 2. Remove user from Ledger Members in Firestore
-        // We have to read the ledger first to filter out the user object correctly
-        // (Firestore arrayRemove needs exact object match which is hard with changing props)
         const ledgerRef = doc(db, 'ledgers', id);
         const ledgerSnap = await getDoc(ledgerRef);
         if (ledgerSnap.exists()) {
@@ -340,16 +370,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             await updateDoc(ledgerRef, { members: newMembers });
         }
 
-        // 3. Handle active ledger switch
         if (ledgerId === id) {
             if (newSavedList.length > 0) {
-                // Switch to the first available one
                 const nextId = newSavedList[0].id;
                 setLedgerId(nextId);
                 localStorage.setItem(STORAGE_KEY_LEDGER_ID, nextId);
                 await syncUserProfile(authUser.uid, { lastLedgerId: nextId });
             } else {
-                // If no ledgers left, create a new default one immediately to prevent blank screen
                 await createNewLedgerInternal(authUser, '我的新帳本', []);
             }
         }
@@ -381,7 +408,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
        if (snap.exists()) {
          const data = snap.data();
          
-         // 1. Add user to ledger members if not already
          const members = data.members || [];
          if (!members.find((m: any) => m.uid === authUser.uid)) {
             await updateDoc(ref, {
@@ -394,14 +420,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             });
          }
 
-         // 2. Add to user's saved list
          const newEntry: SavedLedger = { 
              id: id, 
              alias: data.name || '已加入的帳本', 
              lastAccessedAt: Date.now() 
          };
          
-         // Avoid duplicates
          const newList = savedLedgers.filter(l => l.id !== id).concat(newEntry);
          
          setSavedLedgers(newList);
@@ -424,11 +448,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
      }
   };
 
-  // Transaction Actions (unchanged logic, just context access)
+  // Transaction Actions
   const addTransaction = async (t: Omit<Transaction, 'id' | 'createdAt'>) => {
     if (!authUser || !ledgerId) return;
     if (isMockMode) {
-        // Mock implementation
         const newTx: Transaction = { ...t, id: 'mock-'+Date.now(), createdAt: Date.now(), ledgerId, creatorUid: authUser.uid };
         setTransactions([newTx, ...transactions]);
         localStorage.setItem(MOCK_STORAGE_KEY_TXS, JSON.stringify([newTx, ...transactions]));
@@ -503,7 +526,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       selectedDate,
       setSelectedDate,
       isDarkMode,
-      toggleTheme
+      toggleTheme,
+      
+      // ✅ 導出新功能
+      categories,
+      addCategory,
+      deleteCategory,
+      resetCategories
     }}>
       {children}
     </AppContext.Provider>

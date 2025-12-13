@@ -1,19 +1,23 @@
-
 export enum TransactionType {
   INCOME = 'INCOME',
   EXPENSE = 'EXPENSE'
 }
 
-export enum Category {
-  FOOD = '餐飲',
-  TRANSPORT = '交通',
-  SHOPPING = '購物',
-  HOUSING = '居住',
-  ENTERTAINMENT = '娛樂',
-  SALARY = '薪資',
-  INVESTMENT = '投資',
-  OTHERS = '其他'
-}
+// ❌ 移除原本的 enum Category，因為它無法動態新增
+// ✅ 新增：預設分類清單 (當建立新帳本時，以此為初始值)
+export const DEFAULT_CATEGORIES = [
+  '餐飲',
+  '交通',
+  '購物',
+  '居住',
+  '娛樂',
+  '薪資',
+  '投資',
+  '其他'
+];
+
+// 定義 Category 為字串型別，方便後續擴充
+export type Category = string;
 
 export interface User {
   uid: string; // Firebase User ID
@@ -40,6 +44,10 @@ export interface Ledger {
   name: string;
   ownerUid: string; // The UID of the user who created this ledger
   members: string[]; // Array of UIDs of all members
+  
+  // ✅ 新增：這個帳本專屬的分類清單
+  categories: string[]; 
+  
   createdAt: number;
 }
 
@@ -47,7 +55,10 @@ export interface Transaction {
   id: string;
   amount: number;
   type: TransactionType;
-  category: string;
+  
+  // 這裡改為 string 即可，因為現在分類是動態的
+  category: string; 
+  
   description: string;
   rewards: number; // Value of points/cashback received
   date: string; // ISO String

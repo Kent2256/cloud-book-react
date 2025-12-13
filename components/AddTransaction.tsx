@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../contexts/AppContext';
 import { parseSmartInput } from '../services/geminiService';
-import { TransactionType, Category } from '../types';
+import { TransactionType } from '../types'; // ❌ 移除 Category 引用，因為它現在只是型別，不是值
 
 const MagicWandIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m19 14-4-4 4-4"/><path d="M15 10H7"/><path d="M7 21a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2Z"/></svg>
@@ -16,7 +16,8 @@ interface Props {
 }
 
 const AddTransaction: React.FC<Props> = ({ onComplete }) => {
-  const { addTransaction, currentUser, selectedDate } = useAppContext();
+  // ✅ 修正 1: 從 AppContext 取出 categories (這是最新的動態清單)
+  const { addTransaction, currentUser, selectedDate, categories } = useAppContext();
   const [mode, setMode] = useState<'manual' | 'smart'>('smart');
   
   // Smart Input State
@@ -26,14 +27,24 @@ const AddTransaction: React.FC<Props> = ({ onComplete }) => {
   // Manual Form State
   const [amount, setAmount] = useState<string>('');
   const [type, setType] = useState<TransactionType>(TransactionType.EXPENSE);
-  const [category, setCategory] = useState<Category>(Category.FOOD);
+  
+  // ✅ 修正 2: 初始值改用動態清單的第一項，或是寫死一個預設字串
+  // 因為 Category.FOOD 已經不存在了
+  const [category, setCategory] = useState<string>('');
+
+  // 確保當 categories 載入完成後，category 有預設值
+  useEffect(() => {
+      if (categories.length > 0 && !category) {
+          setCategory(categories[0]);
+      }
+  }, [categories, category]);
+  
   const [description, setDescription] = useState('');
   const [rewards, setRewards] = useState<string>('0');
   
   // Initialize date with selectedDate or today
   const [date, setDate] = useState(() => {
     const target = selectedDate || new Date();
-    // Format YYYY-MM-DD manually to avoid timezone issues with toISOString() in some cases
     const year = target.getFullYear();
     const month = String(target.getMonth() + 1).padStart(2, '0');
     const day = String(target.getDate()).padStart(2, '0');
@@ -45,20 +56,31 @@ const AddTransaction: React.FC<Props> = ({ onComplete }) => {
     if (!smartInput.trim()) return;
 
     setIsParsing(true);
-    const result = await parseSmartInput(smartInput);
+
+    // ✅ 修正 3: 直接將 context 中的 categories 傳給 AI
+    // 不需要再合併 history，因為 context 裡的 categories 已經是最完整的清單
+    const result = await parseSmartInput(smartInput, categories);
     setIsParsing(false);
 
     if (result) {
       setAmount(result.amount.toString());
       setType(result.type as TransactionType);
-      // Ensure category matches enum, default to OTHERS if mismatch
-      const cat = Object.values(Category).includes(result.category as Category) 
-        ? result.category as Category 
-        : Category.OTHERS;
-      setCategory(cat);
+      
+      // AI 回傳的分類如果存在於清單中就使用，否則預設為第一個分類
+      if (categories.includes(result.category)) {
+          setCategory(result.category);
+      } else {
+          setCategory(categories[0] || '其他');
+      }
+      
       setDescription(result.description);
       setRewards(result.rewards?.toString() || '0');
-      setMode('manual'); // Switch to manual to review
+
+      if (result.date) {
+        setDate(result.date);
+      }
+
+      setMode('manual'); // 切換回手動模式讓使用者檢查
     } else {
       alert('無法理解輸入內容，請重試或使用手動模式輸入。');
     }
@@ -69,7 +91,7 @@ const AddTransaction: React.FC<Props> = ({ onComplete }) => {
     addTransaction({
       amount: parseFloat(amount),
       type,
-      category,
+      category: category, // ✅ 這裡現在是 string，不需要轉型
       description,
       rewards: parseFloat(rewards) || 0,
       date: new Date(date).toISOString(),
@@ -79,7 +101,7 @@ const AddTransaction: React.FC<Props> = ({ onComplete }) => {
     onComplete();
   };
 
-  // Shared class for manual input fields to ensure visibility
+  // Shared class for manual input fields
   const inputClass = "w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:bg-white dark:focus:bg-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-slate-100 transition-colors";
 
   return (
@@ -111,11 +133,11 @@ const AddTransaction: React.FC<Props> = ({ onComplete }) => {
               <textarea
                 value={smartInput}
                 onChange={(e) => setSmartInput(e.target.value)}
-                placeholder="例如：晚餐吃義大利麵 500元，回饋 20 點"
+                placeholder="例如：昨天晚餐吃義大利麵 500元，回饋 20 點"
                 className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:bg-white dark:focus:bg-slate-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[120px] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 resize-none transition-colors"
               />
               <p className="text-xs text-slate-400 mt-2">
-                AI 將自動分析金額、分類、描述和回饋。
+                AI 將自動分析金額、分類、描述、回饋以及日期。
               </p>
             </div>
             <button
@@ -173,10 +195,11 @@ const AddTransaction: React.FC<Props> = ({ onComplete }) => {
                 <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">分類</label>
                 <select
                   value={category}
-                  onChange={(e) => setCategory(e.target.value as Category)}
+                  onChange={(e) => setCategory(e.target.value)}
                   className={`${inputClass} p-2.5 text-sm`}
                 >
-                  {Object.values(Category).map((c) => (
+                  {/* ✅ 修正 4: 這裡改用動態 categories 陣列來產生選項 */}
+                  {categories.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>

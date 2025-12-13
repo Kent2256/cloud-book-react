@@ -35,9 +35,9 @@ const Layout = () => {
       <header className="bg-white dark:bg-slate-900 shadow-sm border-b border-transparent dark:border-slate-800 px-4 py-3 sticky top-0 z-10 flex justify-between items-center transition-colors">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">
-            帳
+            記
           </div>
-          <h1 className="text-xl font-bold text-slate-800 dark:text-white tracking-tight">帳本管家</h1>
+          <h1 className="text-xl font-bold text-slate-800 dark:text-white tracking-tight">CloudLedger 雲記</h1>
         </div>
         
         <div className="relative">
