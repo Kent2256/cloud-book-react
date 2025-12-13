@@ -1,0 +1,8 @@
+{
+  "name": "帳本管家",
+  "description": "您的智慧共享記帳本，輕鬆管理財務。支援收入/支出追蹤、回饋點數紀錄以及 AI 智慧輸入功能。",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
