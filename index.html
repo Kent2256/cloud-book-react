@@ -13,8 +13,8 @@
           extend: {
             colors: {
               slate: {
-                850: '#1e293b', // Custom dark shade
-                950: '#020617', // Custom darker shade
+                850: '#1e293b', 
+                950: '#020617', 
               }
             }
           }
@@ -26,41 +26,18 @@
       body { 
         font-family: 'Inter', sans-serif; 
         background-color: #f8fafc; 
-        /* Prevents pull-to-refresh on mobile browsers */
         overscroll-behavior-y: none;
       }
-      /* Dark mode body background */
       html.dark body {
-        background-color: #020617; /* slate-950 */
+        background-color: #020617; 
       }
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      
-      /* Safe area support */
       .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
     </style>
-
-    <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.2.0?dev",
-    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime?dev",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?dev&external=react",
-    "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
-    "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
-    "firebase/": "https://esm.sh/firebase@^12.6.0/"
-  }
-}
-</script>
-  <link rel="stylesheet" href="/index.css">
-</head>
+  </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="./index.tsx"></script>
-  <script type="module" src="/index.tsx"></script>
-</body>
+    <script type="module" src="./src/index.tsx"></script>
+  </body>
 </html>
