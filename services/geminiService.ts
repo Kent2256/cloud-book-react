@@ -5,7 +5,7 @@ import { TransactionType, DEFAULT_CATEGORIES } from "../types"; // ✅ 修改 1:
 // 設定 API KEY
 // ==========================================
 // 建議之後將 Key 移至環境變數
-const ai = new GoogleGenAI({ apiKey: "AIzaSyBSgFRahsbIsiqHjiEdpPvPbO51S2nbc8Q" });
+const ai = new GoogleGenAI({ apiKey: "AIzaSyCqLnGqsJbUdXK3tQrittUvmd2GPDAonp0" });
 
 export interface ParsedTransactionData {
   amount: number;
