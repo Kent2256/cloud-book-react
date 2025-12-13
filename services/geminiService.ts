@@ -6,7 +6,7 @@ import { TransactionType, Category } from "../types";
 // ==========================================
 // 優先使用環境變數中的 API Key
 // Initialize Gemini Client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: "AIzaSyBSgFRahsbIsiqHjiEdpPvPbO51S2nbc8Q" });
 
 export interface ParsedTransactionData {
   amount: number;
