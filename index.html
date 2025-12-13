@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-TW">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -34,6 +34,17 @@
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+      /* 跑馬燈動畫 */
+      .animate-marquee {
+        animation: marquee 15s linear infinite;
+        white-space: nowrap; /* 確保文字不換行 */
+      }
+
+      @keyframes marquee {
+        0% { transform: translateX(100%); } /* 從最右邊開始 */
+        100% { transform: translateX(-100%); } /* 跑到最左邊消失 */
+      }
     </style>
   </head>
   <body>

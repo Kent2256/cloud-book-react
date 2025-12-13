@@ -497,7 +497,7 @@ const Settings = () => {
       </div>
 
       <div className="text-center text-xs text-slate-400 py-4">
-        CloudLedger 雲記 v2.2.0 © 2025 KrendStudio
+        CloudLedger 雲記 v3.0.0 © 2025 KrendStudio
       </div>
     </div>
   );

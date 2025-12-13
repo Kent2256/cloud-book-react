@@ -73,3 +73,12 @@ export interface SpendingSummary {
   totalRewards: number;
   balance: number;
 }
+
+// ✅ 2.3.0新增：系統公告型別
+export interface SystemAnnouncement {
+  text: string;
+  isEnabled: boolean;
+  startAt: any; // Firestore Timestamp
+  endAt: any;   // Firestore Timestamp
+  type?: 'info' | 'warning' | 'error';
+}

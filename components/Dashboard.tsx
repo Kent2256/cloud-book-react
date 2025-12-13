@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useAppContext } from '../contexts/AppContext';
-import { TransactionType } from '../types'; // ❌ 移除 Category 引用
-import { getFinancialAdvice } from '../services/geminiService';
+import { TransactionType } from '../types'; // ❌ 已移除 Category 引用
 import { EditTransactionModal } from './TransactionList';
+import SystemAnnouncement from './SystemAnnouncement'; // ✅ 1. 引入跑馬燈元件
 
 const SparklesIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
@@ -11,9 +11,8 @@ const SparklesIcon = ({ className }: { className?: string }) => (
 const SWIPE_THRESHOLD = 50; // Minimum pixels for a swipe to register
 
 const Dashboard = () => {
+  // ❌ 移除 advice 相關狀態，因為不再需要 AI 分析
   const { transactions, users, updateTransaction, deleteTransaction, setSelectedDate } = useAppContext();
-  const [advice, setAdvice] = useState<string>('');
-  const [loadingAdvice, setLoadingAdvice] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   
   // States for Day Detail Drawer
@@ -57,16 +56,7 @@ const Dashboard = () => {
     return transactions.reduce((acc, t) => acc + (t.rewards || 0), 0);
   }, [transactions]);
 
-  useEffect(() => {
-    if (transactions.length > 0) {
-      setLoadingAdvice(true);
-      getFinancialAdvice(transactions)
-        .then(setAdvice)
-        .finally(() => setLoadingAdvice(false));
-    } else {
-      setAdvice("歡迎！開始記帳以獲得 AI 財務分析。");
-    }
-  }, [transactions.length]);
+  // ❌ 移除 useEffect (原本用來呼叫 AI 分析)
 
   // Calendar Logic
   const calendarData = useMemo(() => {
@@ -155,23 +145,19 @@ const Dashboard = () => {
 
   // --- Drawer Drag Logic ---
   const handleDragStart = (e: React.PointerEvent) => {
-    // Prevent default to stop scrolling/text selection issues
     e.preventDefault(); 
     isDragging.current = true;
     dragStartY.current = e.clientY;
     dragStartHeight.current = drawerHeight;
     
-    // Attach global listeners
     window.addEventListener('pointermove', handleGlobalDrag);
     window.addEventListener('pointerup', handleDragEnd);
   };
 
   const handleGlobalDrag = (e: PointerEvent) => {
     if (!isDragging.current) return;
-    const delta = dragStartY.current - e.clientY; // Move up = positive delta = increase height
+    const delta = dragStartY.current - e.clientY;
     const newHeight = dragStartHeight.current + delta;
-    
-    // Clamp height: Min 200px, Max 95% of viewport
     const clampedHeight = Math.min(Math.max(newHeight, 200), window.innerHeight * 0.95);
     setDrawerHeight(clampedHeight);
   };
@@ -192,7 +178,7 @@ const Dashboard = () => {
     return num.toString();
   };
   
-  // ✅ 修正：改用字串比對，並統一 Dark Mode 樣式
+  // ✅ 修正：改用字串比對，並維持 Dark Mode 樣式
   const getCategoryColor = (cat: string) => {
     switch (cat) {
       case '餐飲': return 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400';
@@ -214,7 +200,10 @@ const Dashboard = () => {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10 relative">
       
-      {/* 1. Calendar View (Moved to Top) */}
+      {/* ✅ 2. 插入跑馬燈 (最上方) */}
+      <SystemAnnouncement />
+
+      {/* 3. Calendar View (移到最上方) */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800 relative z-0 transition-colors">
         <div className="flex items-center justify-between mb-4 px-1">
            <h3 className="font-bold text-slate-800 dark:text-white">收支日曆</h3>
@@ -286,7 +275,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* 2. Monthly Balance Card */}
+      {/* 4. Monthly Balance Card */}
       <div 
         className="relative bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-white shadow-xl cursor-grab active:cursor-grabbing"
         onTouchStart={handleTouchStart}
@@ -294,7 +283,7 @@ const Dashboard = () => {
         role="region"
         aria-label={`${currentDate.getMonth() + 1}月資產變化`}
       >
-        <div className="flex items-center justify-between mb-1"> {/* Wrapper for title and buttons */}
+        <div className="flex items-center justify-between mb-1"> 
           <button 
             onClick={() => changeMonth(-1)} 
             className="p-1 text-slate-400 hover:text-white rounded-md transition-colors"
@@ -335,7 +324,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* 3. Rewards Card (Accumulated) */}
+      {/* 5. Rewards Card (Accumulated) */}
       <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/30 rounded-2xl p-5 flex items-center justify-between shadow-sm transition-colors" role="region" aria-label="累積回饋">
         <div>
           <h3 className="text-amber-800 dark:text-amber-400 font-semibold mb-1">累積回饋</h3>
@@ -350,27 +339,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* 4. AI Insight */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm border border-slate-100 dark:border-slate-800 transition-colors" role="region" aria-label="AI 智慧分析">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white p-1 rounded-md">
-            <SparklesIcon className="w-4 h-4" aria-hidden="true" />
-          </div>
-          <h3 className="font-semibold text-slate-800 dark:text-white">AI 智慧分析</h3>
-        </div>
-        <div className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed" aria-live="polite">
-          {loadingAdvice ? (
-            <span className="flex items-center gap-2" role="status">
-              <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce"></span>
-              <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce delay-75"></span>
-              <span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce delay-150"></span>
-              載入建議中...
-            </span>
-          ) : (
-            advice
-          )}
-        </div>
-      </div>
+      {/* ❌ 6. AI Insight 已移除 */}
 
       {/* Slide-Up Day Detail Drawer */}
       {selectedDay && (
