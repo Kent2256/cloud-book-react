@@ -5,15 +5,16 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
-    // 👇【新增】關鍵設定：你的 GitHub Repository 名稱
-    // 如果你的專案名稱不是 cloud-book-react，請自行修改這裡
-    base: '/cloud-book-react/',
+    // 👇【修改這裡】Firebase 部署在根目錄，所以要改回 '/'
+    base: '/',
 
     server: {
       port: 3000,
       host: '0.0.0.0',
     },
     plugins: [react()],
+    // ⚠️ 備註：既然 AI 邏輯已經移到後端，前端其實不再需要這些 KEY 了
+    // 但為了避免改太多東西報錯，這段先留著沒關係
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
@@ -23,7 +24,6 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, '.'),
       }
     },
-    // 👇【新增】指定打包輸出目錄 (對應 deploy.yml 的設定)
     build: {
       outDir: 'dist',
     }
