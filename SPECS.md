@@ -5,20 +5,26 @@
 **現狀**：目前全域使用 `onSnapshot` 監聽。
 **需求變更**：
 1.  **移除監聽**：除「跑馬燈 (Marquee)」外，移除其他頁面的 `onSnapshot`。
-2.  **同步時機**：改為使用 `getDocs` 單次讀取，觸發時機如下：
-    * **App 啟動時 (App Launch)**：讀取一次最新資料。
-    * **切換至首頁時 (On Home Focus)**：當 Router 切換回首頁 (日曆頁) 時，自動觸發同步。
-    * **手動觸發 (Manual)**：使用者點擊首頁「立即同步」按鈕時。
+2.  **同步時機（增量同步）**：改為使用 `getDocs` 並採增量查詢以降低讀取量。
+    * **增量欄位**：每筆交易需包含 `updatedAt`（unix ms）欄位；刪除需以 `deleted: true` 或 `deletedAt` 標記（請勿直接刪除文件，以便增量同步可以偵測刪除）。
+    * **App 啟動時 (Initial)**：若無上次同步紀錄，則抓取最近 N 筆（例如最近 200 筆）作為初始快照。
+    * **增量同步 (Incremental)**：之後使用 `where('updatedAt','>', lastSyncedAt)` 並按 `updatedAt` 取得變動，僅同步差異。
+    * **切換至首頁 / Focus**：在 Router 回到首頁或視窗 focus 時觸發增量同步，但需做防抖/限頻（例如 30 秒）以避免短時間內重複觸發。
+    * **手動觸發 (Manual)**：首頁新增「立即同步」按鈕，可強制執行一次完整或增量同步。
+    * **本地紀錄**：最後同步時間儲存在 localStorage（key 範例：`cloudledger_last_synced_at_{ledgerId}`）。
+    * **例外 / Metadata**：帳本（members、categories）改為單次 `getDoc`（不再使用 `onSnapshot`）以減少長期監聽成本。
 3.  **例外**：跑馬燈維持 `onSnapshot` 以保持動態感。
 
 ## 2. 紀錄頁面搜尋 (Search Feature)
 **目標**：讓使用者能快速查找舊帳目。
 **需求變更**：
-1.  在「紀錄 (Records)」列表頁上方新增搜尋輸入框。
-2.  **過濾邏輯**：即時過濾 (Client-side filtering)，關鍵字需匹配以下任一欄位：
-    * `note` (備註)
-    * `category` (分類)
-    * `amount` (金額)
+1.  在「紀錄 (Records)」列表頁上方新增搜尋輸入框，並顯示「總筆數 / 顯示筆數」。
+2.  **過濾邏輯**：客戶端即時過濾 (Client-side filtering)，規格如下：
+    * **匹配欄位**：`description` (備註/說明)，`category` (分類)，`amount` (金額)。
+    * **多關鍵字**：支援以空白分隔的多關鍵字，採 AND 邏輯（每個關鍵字需在任一欄位被命中）。
+    * **即時反應**：輸入會做 Debounce（預設 200ms）以降低頻繁重複運算。
+    * **結果顯示**：若無結果顯示「沒有符合搜尋的紀錄」，同時 UI 顯示目前顯示筆數。
+    * **隱私/效能**：一律採 Client-side 過濾，不會將搜尋字串送到後端。
 
 ## 3. 智慧輸入設定 (BYOK - Bring Your Own Key) [Security Enhanced]
 **目標**：解決共用 API Key 額度不足問題，允許使用者自訂 AI，並確保極高的資安標準。

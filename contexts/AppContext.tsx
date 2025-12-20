@@ -7,14 +7,17 @@ import {
   collection, 
   query, 
   orderBy, 
-  onSnapshot, 
+  getDocs,
+  where,
+  limit,
   addDoc, 
   deleteDoc, 
   doc, 
   updateDoc, 
   setDoc,
   getDoc,
-  arrayUnion
+  arrayUnion,
+  serverTimestamp
 } from 'firebase/firestore';
 
 
@@ -49,6 +52,11 @@ interface AppContextType {
   addCategory: (type: 'expense' | 'income', category: string) => Promise<void>;
   deleteCategory: (type: 'expense' | 'income', category: string) => Promise<void>;
   resetCategories: () => Promise<void>;
+
+  // 新增：同步控制
+  syncTransactions: (forceFull?: boolean) => Promise<void>;
+  lastSyncedAt?: number;
+  isSyncing?: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -70,6 +78,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // ✅ 修改：拆分狀態
   const [expenseCategories, setExpenseCategories] = useState<string[]>(DEFAULT_EXPENSE_CATEGORIES);
   const [incomeCategories, setIncomeCategories] = useState<string[]>(DEFAULT_INCOME_CATEGORIES);
+
+  // Sync state
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Local fallback state
   const [localUsers, setLocalUsers] = useState<User[]>([{
@@ -249,6 +261,79 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // --- 2. Sync Ledger Data (Transactions & Members & Categories) ---
+
+  // helpers for incremental sync
+  const LAST_SYNC_KEY_PREFIX = 'cloudledger_last_synced_at_';
+
+  const processDocs = (docs: any[]) => {
+    setTransactions((prev) => {
+      const map = new Map(prev.map(t => [t.id, t]));
+      docs.forEach(d => {
+        const id = d.id;
+        const data = d.data();
+        if (data.deleted) {
+          map.delete(id);
+        } else {
+          map.set(id, { id, ...(data as any) } as Transaction);
+        }
+      });
+      // return sorted by date desc
+      const merged = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      localStorage.setItem(MOCK_STORAGE_KEY_TXS, JSON.stringify(merged));
+      return merged;
+    });
+  };
+
+  const syncTransactions = async (forceFull = false) => {
+    if (!ledgerId || !db) return;
+    setIsSyncing(true);
+    try {
+      const key = `${LAST_SYNC_KEY_PREFIX}${ledgerId}`;
+      const last = Number(localStorage.getItem(key)) || 0;
+
+      // initial fetch
+      if (forceFull || last === 0) {
+        const q = query(collection(db, `ledgers/${ledgerId}/transactions`), orderBy('date', 'desc'), limit(200));
+        const snap = await getDocs(q);
+        processDocs(snap.docs);
+
+        const max = snap.docs.reduce((acc, d) => {
+          const u = (d.data() as any).updatedAt || 0;
+          return Math.max(acc, u);
+        }, Date.now());
+        localStorage.setItem(key, String(max));
+        setLastSyncedAt(max);
+        return;
+      }
+
+      // incremental fetch
+      const incQuery = query(
+        collection(db, `ledgers/${ledgerId}/transactions`),
+        where('updatedAt', '>', last),
+        orderBy('updatedAt', 'asc')
+      );
+      const incSnap = await getDocs(incQuery);
+      if (!incSnap.empty) {
+        processDocs(incSnap.docs);
+        const max = incSnap.docs.reduce((acc, d) => {
+          const u = (d.data() as any).updatedAt || 0;
+          return Math.max(acc, u);
+        }, last);
+        localStorage.setItem(key, String(max));
+        setLastSyncedAt(max);
+      } else {
+        const now = Date.now();
+        localStorage.setItem(key, String(now));
+        setLastSyncedAt(now);
+      }
+    } catch (e) {
+      console.error('Sync transactions failed:', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // UseEffect: fetch ledger metadata once and trigger initial sync
   useEffect(() => {
     if (!authUser || !ledgerId) return;
 
@@ -264,54 +349,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     if (!db) return;
 
-    // Listen to Transactions
-    const q = query(collection(db, `ledgers/${ledgerId}/transactions`), orderBy('date', 'desc'));
-    const unsubscribeTx = onSnapshot(q, (snapshot) => {
-      const txs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Transaction[];
-      setTransactions(txs);
-    });
+    const fetchMetadata = async () => {
+      const ledgerRef = doc(db, 'ledgers', ledgerId);
+      try {
+        const ledgerSnap = await getDoc(ledgerRef);
+        if (ledgerSnap.exists()) {
+          const data = ledgerSnap.data();
+          if (data.members) setUsers(data.members);
 
-    // Listen to Ledger Metadata (Members & Categories)
-    const ledgerRef = doc(db, 'ledgers', ledgerId);
-    const unsubscribeLedger = onSnapshot(ledgerRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.members) {
-          setUsers(data.members);
-        }
-        
-        // ✅ 修改：同步分類 (處理新舊資料相容)
-        // 1. 讀取支出分類
-        if (data.expenseCategories) {
+          if (data.expenseCategories) {
             setExpenseCategories(data.expenseCategories);
-        } else if (data.categories) {
-            // 舊版資料相容：如果沒有 expenseCategories，但有 categories，則視為支出
+          } else if (data.categories) {
             setExpenseCategories(data.categories);
-            // 順手把舊資料遷移成新格式
-            updateDoc(ledgerRef, { 
-                expenseCategories: data.categories,
-                incomeCategories: data.incomeCategories || DEFAULT_INCOME_CATEGORIES
-            });
-        } else {
+            updateDoc(ledgerRef, {
+              expenseCategories: data.categories,
+              incomeCategories: data.incomeCategories || DEFAULT_INCOME_CATEGORIES
+            }).catch(() => {});
+          } else {
             setExpenseCategories(DEFAULT_EXPENSE_CATEGORIES);
-        }
+          }
 
-        // 2. 讀取收入分類
-        if (data.incomeCategories) {
+          if (data.incomeCategories) {
             setIncomeCategories(data.incomeCategories);
-        } else {
+          } else {
             setIncomeCategories(DEFAULT_INCOME_CATEGORIES);
+          }
         }
+      } catch (e) {
+        console.error('Error fetching ledger metadata:', e);
       }
-    });
 
-    return () => {
-      unsubscribeTx();
-      unsubscribeLedger();
+      // initial sync
+      await syncTransactions(true);
     };
+
+    fetchMetadata();
+
+    return () => {};
   }, [authUser, ledgerId]);
 
 
@@ -490,22 +564,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Transaction Actions
   const addTransaction = async (t: Omit<Transaction, 'id' | 'createdAt'>) => {
     if (!authUser || !ledgerId) return;
+    const now = Date.now();
     if (isMockMode) {
-        const newTx: Transaction = { ...t, id: 'mock-'+Date.now(), createdAt: Date.now(), ledgerId, creatorUid: authUser.uid };
-        setTransactions([newTx, ...transactions]);
+        const newTx: Transaction = { ...t, id: 'mock-'+now, createdAt: now, updatedAt: now, ledgerId, creatorUid: authUser.uid };
+        setTransactions(prev => [newTx, ...prev]);
         localStorage.setItem(MOCK_STORAGE_KEY_TXS, JSON.stringify([newTx, ...transactions]));
         return;
     }
     if (!db) return;
+    const tempId = 'tmp-' + now;
+    const optimistic: Transaction = { ...t, id: tempId, createdAt: now, updatedAt: now, ledgerId, creatorUid: authUser.uid };
+    setTransactions(prev => [optimistic, ...prev]);
     try {
-      await addDoc(collection(db, `ledgers/${ledgerId}/transactions`), { ...t, createdAt: Date.now(), creatorUid: authUser.uid });
+      await addDoc(collection(db, `ledgers/${ledgerId}/transactions`), { ...t, createdAt: now, updatedAt: now, creatorUid: authUser.uid });
+      // refresh incrementally
+      await syncTransactions();
     } catch (e: any) {
       console.error(e);
       alert("Error: " + e.message);
+      // revert optimistic
+      setTransactions(prev => prev.filter(tx => tx.id !== tempId));
     }
   };
 
   const updateTransaction = async (id: string, updates: Partial<Transaction>) => {
+    const now = Date.now();
     if (isMockMode) {
         const updated = transactions.map(t => t.id === id ? { ...t, ...updates } : t);
         setTransactions(updated);
@@ -513,10 +596,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return;
     }
     if (!ledgerId || !db) return;
-    await updateDoc(doc(db, `ledgers/${ledgerId}/transactions`, id), updates);
+    // optimistic update
+    setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updates, updatedAt: now } : t));
+    try {
+      await updateDoc(doc(db, `ledgers/${ledgerId}/transactions`, id), { ...updates, updatedAt: now });
+      // fetch incremental changes
+      await syncTransactions();
+    } catch (e: any) {
+      console.error(e);
+      alert(`Update failed: ${e.message}`);
+    }
   };
 
   const deleteTransaction = async (id: string) => {
+    const now = Date.now();
     if (isMockMode) {
         const filtered = transactions.filter(t => t.id !== id);
         setTransactions(filtered);
@@ -524,7 +617,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return;
     }
     if (!ledgerId || !db) return;
-    await deleteDoc(doc(db, `ledgers/${ledgerId}/transactions`, id));
+    // soft-delete to allow incremental sync to catch removals
+    setTransactions(prev => prev.filter(t => t.id !== id));
+    try {
+      await updateDoc(doc(db, `ledgers/${ledgerId}/transactions`, id), { deleted: true, deletedAt: now, updatedAt: now });
+      await syncTransactions();
+    } catch (e: any) {
+      console.error(e);
+      alert(`Delete failed: ${e.message}`);
+    }
   };
 
   // Placeholders
@@ -572,7 +673,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       incomeCategories,
       addCategory,
       deleteCategory,
-      resetCategories
+      resetCategories,
+      // Sync controls
+      syncTransactions,
+      lastSyncedAt: lastSyncedAt || undefined,
+      isSyncing
     }}>
       {children}
     </AppContext.Provider>

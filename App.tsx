@@ -25,6 +25,40 @@ const ChartPieIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
 );
 
+// Sync control component (placed in header)
+const SyncControl: React.FC = () => {
+  const { syncTransactions, lastSyncedAt, isSyncing } = useAppContext();
+  const lastFocusRef = React.useRef(0);
+
+  React.useEffect(() => {
+    if (!syncTransactions) return;
+    const handler = () => {
+      const now = Date.now();
+      if (now - lastFocusRef.current > 30000) {
+        lastFocusRef.current = now;
+        syncTransactions();
+      }
+    };
+    window.addEventListener('focus', handler);
+    return () => window.removeEventListener('focus', handler);
+  }, [syncTransactions]);
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => syncTransactions && syncTransactions(true)}
+        className="flex items-center gap-2 px-3 py-1 rounded-md text-xs bg-white dark:bg-slate-700 hover:opacity-90 transition"
+        aria-label="立即同步"
+        title="立即同步"
+      >
+        <svg className="w-4 h-4 text-slate-600 dark:text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 0-3.16 6.36"/><path d="M21 12v-5"/></svg>
+        <span className="hidden sm:inline">{isSyncing ? '同步中...' : '立即同步'}</span>
+      </button>
+      <span className="text-[11px] text-slate-400 hidden md:inline">{lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : '尚未同步'}</span>
+    </div>
+  );
+};
+
 const Layout = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'add' | 'list' | 'settings' | 'stats'>('dashboard');
   const { currentUser } = useAppContext(); 
@@ -42,7 +76,11 @@ const Layout = () => {
           <h1 className="text-xl font-bold text-slate-800 dark:text-white tracking-tight">CloudLedger 雲記</h1>
         </div>
         
-        <div className="relative">
+        <div className="relative flex items-center gap-3">
+          {/* Sync button (moved from Dashboard) */}
+          {/* Shows on larger screens; on small screens it's an icon only */}
+          <SyncControl />
+
           <button 
             onClick={() => setActiveTab('settings')}
             className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"

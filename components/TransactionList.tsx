@@ -6,6 +6,29 @@ const TransactionList = () => {
   const { transactions, users, deleteTransaction, updateTransaction } = useAppContext();
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // Search state (client-side, debounced)
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Debounce input to avoid excessive filtering during typing
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 200);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  // Filter transactions by debounced search term (match description, category, or amount)
+  const filteredTransactions = React.useMemo(() => {
+    if (!debouncedSearch) return transactions;
+    const tokens = debouncedSearch.split(/\s+/).filter(Boolean);
+    return transactions.filter(t => {
+      const desc = (t.description || '').toLowerCase();
+      const cat = (t.category || '').toLowerCase();
+      const amt = String(t.amount || '');
+      // Require ALL tokens to be matched in at least one of the fields (AND semantics)
+      return tokens.every(token => desc.includes(token) || cat.includes(token) || amt.includes(token));
+    });
+  }, [transactions, debouncedSearch]);
+
   // ✅ 優化：加入 dark mode 的顏色配色，讓標籤在黑底上比較柔和
   const getCategoryColor = (cat: string) => {
     switch (cat) {
@@ -36,11 +59,42 @@ const TransactionList = () => {
     );
   }
 
+  // UI: Search input + count
+  const onClearSearch = () => setSearch('');
+
   return (
     <div className="space-y-4 pb-24">
-      <h3 className="font-bold text-slate-800 dark:text-slate-100 text-lg transition-colors">近期紀錄</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="font-bold text-slate-800 dark:text-slate-100 text-lg transition-colors">近期紀錄</h3>
+        <div className="text-sm text-slate-500 dark:text-slate-400">總筆數 {transactions.length} / 顯示 {filteredTransactions.length}</div>
+      </div>
+
+      {/* Search Input */}
+      <div className="flex items-center gap-2">
+        <div className="flex-1 relative">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="搜尋：描述 / 分類 / 金額（多關鍵字以空白分隔）"
+            className="w-full pl-10 pr-10 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-800 dark:text-slate-100 transition-colors"
+            aria-label="搜尋紀錄"
+          />
+          {search && (
+            <button onClick={onClearSearch} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:text-slate-400">
+              ×
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="space-y-3">
-        {transactions.map((t) => {
+        {filteredTransactions.length === 0 && (
+          <div className="py-8 text-center text-slate-500">沒有符合搜尋的紀錄</div>
+        )}
+
+        {filteredTransactions.map((t) => {
           const user = getUser(t.creatorUid);
           const isExpense = t.type === TransactionType.EXPENSE;
           

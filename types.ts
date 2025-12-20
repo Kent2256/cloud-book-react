@@ -52,6 +52,11 @@ export interface Transaction {
   creatorUid: string; // The UID of the user who created this record
   ledgerId: string; // Link to the associated ledger
   createdAt: number;
+
+  // 增量同步欄位
+  updatedAt?: number; // unix ms
+  deleted?: boolean; 
+  deletedAt?: number;
 }
 
 export interface SpendingSummary {
