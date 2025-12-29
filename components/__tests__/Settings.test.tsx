@@ -24,6 +24,7 @@ describe('Settings BYOK UI', () => {
 
     renderWithProviders(<Settings />);
 
+    fireEvent.click(screen.getByLabelText('展開'));
     const input = screen.getByPlaceholderText(/輸入 API Key/i);
     fireEvent.change(input, { target: { value: '6yhn%TGB' } });
 
@@ -39,7 +40,7 @@ describe('Settings BYOK UI', () => {
       expect(mockedValidateApiKey).toHaveBeenCalledWith('6yhn%TGB');
     });
 
-    await waitFor(() => screen.getByText(/可用模型/i));
+    await waitFor(() => screen.getByText('gemini-3-flash-preview'));
     expect(screen.getByText('gemini-3-flash-preview')).toBeInTheDocument();
   });
 
@@ -48,6 +49,7 @@ describe('Settings BYOK UI', () => {
 
     renderWithProviders(<Settings />);
 
+    fireEvent.click(screen.getByLabelText('展開'));
     const input = screen.getByPlaceholderText(/輸入 API Key/i);
     fireEvent.change(input, { target: { value: 'invalid-key' } });
 

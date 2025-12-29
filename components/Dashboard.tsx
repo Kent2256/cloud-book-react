@@ -352,7 +352,7 @@ const Dashboard = () => {
             <SparklesIcon className="w-5 h-5" />
           </div>
           <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
-            消費回饋
+            點券折抵
           </span>
         </div>
         

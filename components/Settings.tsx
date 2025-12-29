@@ -236,6 +236,7 @@ const Settings = () => {
   const [editingLedgerId, setEditingLedgerId] = useState<string | null>(null);
   const [tempAlias, setTempAlias] = useState('');
   const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showLedgerSwitcher, setShowLedgerSwitcher] = useState(false);
 
   const [apiKeyInput, setApiKeyInput] = useState<string>(localStorage.getItem('user_gemini_key') || '');
   const [isTesting, setIsTesting] = useState(false);
@@ -415,6 +416,8 @@ const Settings = () => {
     await syncTransactions(true);
     showMsg('success', '已觸發同步');
   };
+
+  const currentLedger = savedLedgers.find((l) => l.id === ledgerId);
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <div className="flex justify-between items-center">
@@ -438,6 +441,20 @@ const Settings = () => {
           {msg.text}
         </div>
       )}
+
+      <button
+        onClick={() => setShowLedgerSwitcher(true)}
+        className="w-full bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800 text-left hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors"
+      >
+        <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">目前帳本</div>
+        <div className="flex items-center justify-between mt-2">
+          <div>
+            <div className="text-sm font-bold text-slate-800 dark:text-slate-100">{currentLedger?.alias || '未選擇'}</div>
+            {ledgerId && <div className="text-[11px] text-slate-400 font-mono mt-0.5 truncate max-w-[220px]">ID: {ledgerId}</div>}
+          </div>
+          <ChevronRightIcon className="w-5 h-5 text-slate-400" />
+        </div>
+      </button>
 
       <SectionCard title="資料同步" description="顯示最後同步時間，可手動觸發同步。">
         <div className="flex items-center justify-between gap-3">
@@ -671,8 +688,48 @@ const Settings = () => {
       </SectionCard>
 
       <div className="text-center text-xs text-slate-400 py-4">
-        CloudLedger 雲記 v3.3.1 (c) 2025 KrendStudio
+        CloudLedger 雲記 v3.4.1 © 2025 KrendStudio
       </div>
+
+      {showLedgerSwitcher && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setShowLedgerSwitcher(false)}>
+          <div
+            className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl flex flex-col border border-slate-200 dark:border-slate-800 animate-in slide-in-from-bottom-10 duration-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="font-bold text-slate-800 dark:text-slate-100">選擇您的帳本</div>
+              <div className="text-xs text-slate-400 mt-1">切換後會回到首頁</div>
+            </div>
+            <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
+              {savedLedgers.map((ledger) => (
+                <button
+                  key={ledger.id}
+                  onClick={() => {
+                    if (ledger.id !== ledgerId) switchLedger(ledger.id);
+                    setShowLedgerSwitcher(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg border transition ${ledger.id === ledgerId ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-300'}`}
+                >
+                  <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{ledger.alias}</div>
+                  <div className="text-[11px] text-slate-400 font-mono truncate">ID: {ledger.id}</div>
+                </button>
+              ))}
+              {savedLedgers.length === 0 && (
+                <div className="text-sm text-slate-500">尚無帳本可切換。</div>
+              )}
+            </div>
+            <div className="p-4 border-t border-slate-100 dark:border-slate-800">
+              <button
+                onClick={() => setShowLedgerSwitcher(false)}
+                className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-sm"
+              >
+                關閉
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCategoryModal && <CategoryManagerModal onClose={() => setShowCategoryModal(false)} />}
     </div>

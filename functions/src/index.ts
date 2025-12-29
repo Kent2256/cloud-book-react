@@ -1,8 +1,10 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import * as functionsV1 from "firebase-functions/v1";
 import { defineSecret } from "firebase-functions/params";
 import { GoogleGenAI, Type } from "@google/genai";
-// 如果您有用到 Firestore 觸發器 (例如建立新帳本)，請記得 import admin/db
-// import * as admin from "firebase-admin";
+import * as admin from "firebase-admin";
+
+admin.initializeApp();
 
 // 1. 定義 Secret
 const geminiApiKey = defineSecret("GEMINI_API_KEY");
@@ -12,11 +14,11 @@ const devKeyCode = defineSecret("DEV_KEY_CODE");
 
 // ✅ 修改：定義分開的預設分類 (與前端 constants.ts 保持一致)
 const DEFAULT_EXPENSE_CATEGORIES = [
-  '餐飲', '交通', '購物', '居住', '娛樂', '醫療', '教育', '其他'
+  '餐飲', '交通', '日常', '居住', '娛樂', '醫療', '教育', '其他'
 ];
 
 const DEFAULT_INCOME_CATEGORIES = [
-  '薪資', '獎金', '投資', '兼職', '零用金', '消費回饋', '其他'
+  '薪資', '獎金', '投資', '兼職', '零用金', '點券折抵', '其他'
 ];
 
 interface SmartInputRequest {
@@ -161,31 +163,125 @@ export const validateKey = onCall(
   { secrets: [geminiApiKey, devKeyCode] },
   validateKeyHandler
 );
-
-
-// ------------------------------------------------------------------
-// 💡 補充建議：如果您有「自動建立使用者帳本」的 Trigger (onUserCreate)
-// 請記得也要在那邊使用這兩個新變數寫入資料庫，範例如下：
-/*
-import * as functions from "firebase-functions";
-import * as admin from "firebase-admin";
-// admin.initializeApp(); // 確保有初始化
-
-export const onUserCreate = functions.auth.user().onCreate(async (user) => {
+export const onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
   const db = admin.firestore();
-  await db.collection('ledgers').add({
-    name: '我的帳本',
-    ownerUid: user.uid,
+  await db.collection('users').doc(user.uid).set({
+    displayName: user.displayName ?? null,
+    email: user.email ?? null,
+    photoURL: user.photoURL ?? null,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    members: [{
-      uid: user.uid,
-      displayName: user.displayName,
-      email: user.email,
-      photoURL: user.photoURL
-    }],
-    // ✅ 這裡也要改成寫入分開的欄位
-    expenseCategories: DEFAULT_EXPENSE_CATEGORIES,
-    incomeCategories: DEFAULT_INCOME_CATEGORIES
-  });
+    ledgers: []
+  }, { merge: true });
 });
-*/
+
+// 2.1 退出與軟刪除 (Leave Ledger)
+export const leaveLedgerHandler = async (request: any) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '請先登入');
+  }
+
+  const ledgerId = (request.data as any)?.ledgerId as string | undefined;
+  if (!ledgerId) {
+    throw new HttpsError('invalid-argument', '缺少帳本 ID');
+  }
+
+  const db = admin.firestore();
+  const ledgerRef = db.collection('ledgers').doc(ledgerId);
+  const uid = request.auth.uid;
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ledgerRef);
+    if (!snap.exists) {
+      throw new HttpsError('not-found', '帳本不存在');
+    }
+
+    const data = snap.data() || {};
+    const members = Array.isArray(data.members) ? data.members : [];
+    const newMembers = members.filter((m: any) => m?.uid !== uid);
+
+    if (newMembers.length === members.length) {
+      throw new HttpsError('failed-precondition', '使用者不在帳本內');
+    }
+
+    const updates: Record<string, any> = { members: newMembers };
+    if (newMembers.length === 0) {
+      const sevenDaysLater = admin.firestore.Timestamp.fromMillis(
+        Date.now() + 7 * 24 * 60 * 60 * 1000
+      );
+      updates.scheduledDeleteAt = sevenDaysLater;
+    }
+
+    tx.update(ledgerRef, updates);
+  });
+
+  return { ok: true };
+};
+
+export const leaveLedger = onCall(leaveLedgerHandler);
+
+// 2.2 加入與復活 (Join Ledger)
+export const joinLedgerHandler = async (request: any) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '請先登入');
+  }
+
+  const ledgerId = (request.data as any)?.ledgerId as string | undefined;
+  if (!ledgerId) {
+    throw new HttpsError('invalid-argument', '缺少帳本 ID');
+  }
+
+  const db = admin.firestore();
+  const ledgerRef = db.collection('ledgers').doc(ledgerId);
+  const uid = request.auth.uid;
+  const token = request.auth.token || {};
+  const member = {
+    uid,
+    displayName: token.name ?? null,
+    email: token.email ?? null,
+    photoURL: token.picture ?? null
+  };
+
+  let ledgerName: string | null = null;
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ledgerRef);
+    if (!snap.exists) {
+      throw new HttpsError('not-found', '帳本不存在');
+    }
+
+    const data = snap.data() || {};
+    ledgerName = data.name ?? null;
+    const members = Array.isArray(data.members) ? data.members : [];
+    const exists = members.some((m: any) => m?.uid === uid);
+    const newMembers = exists ? members : [...members, member];
+
+    const updates: Record<string, any> = { members: newMembers };
+    if (data.scheduledDeleteAt) {
+      updates.scheduledDeleteAt = admin.firestore.FieldValue.delete();
+    }
+
+    tx.update(ledgerRef, updates);
+  });
+
+  return { ok: true, ledgerName };
+};
+
+export const joinLedger = onCall(joinLedgerHandler);
+
+// 2.3 排程清理 (Scheduled Cleanup)
+export const scheduledCleanup = functionsV1.pubsub.schedule('every 24 hours').onRun(async () => {
+  const db = admin.firestore();
+  const now = admin.firestore.Timestamp.now();
+  const snap = await db
+    .collection('ledgers')
+    .where('members', '==', [])
+    .where('scheduledDeleteAt', '<', now)
+    .get();
+
+  if (snap.empty) return null;
+
+  const batch = db.batch();
+  snap.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
+  return null;
+});

@@ -1,6 +1,7 @@
 import * as firebaseApp from "firebase/app";
 import { getAuth, GoogleAuthProvider, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
+import { getFunctions, type Functions } from "firebase/functions";
 
 const firebaseConfig = {
     apiKey: "AIzaSyCqYd0jEalHKO7xH5zvS9_zavr7GA-FyjU",
@@ -16,6 +17,7 @@ const firebaseConfig = {
 let app;
 let auth: Auth | undefined;
 let db: Firestore | undefined;
+let functions: Functions | undefined;
 let googleProvider: GoogleAuthProvider | undefined;
 let isMockMode = false;
 
@@ -25,6 +27,7 @@ try {
   app = firebaseApp.initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  functions = getFunctions(app);
   googleProvider = new GoogleAuthProvider();
   
   console.log("✅ Firebase 連線嘗試成功");
@@ -43,4 +46,4 @@ const enableMockMode = () => {
   console.log("🔄 手動切換至 [模擬模式] (Mock Mode)");
 };
 
-export { app, auth, db, googleProvider, isMockMode, enableMockMode };
+export { app, auth, db, functions, googleProvider, isMockMode, enableMockMode };

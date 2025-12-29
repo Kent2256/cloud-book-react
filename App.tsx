@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AppProvider, useAppContext } from './contexts/AppContext'; 
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import WelcomeScreen from './components/WelcomeScreen';
+import OnboardingScreen from './components/OnboardingScreen';
 import Dashboard from './components/Dashboard';
 import AddTransaction from './components/AddTransaction';
 import TransactionList from './components/TransactionList';
@@ -204,9 +205,27 @@ const Main = () => {
   // If user is logged in, show the App wrapped in AppProvider (which needs AuthContext)
   return (
     <AppProvider>
-      <Layout />
+      <AppGate />
     </AppProvider>
   );
+};
+
+const AppGate = () => {
+  const { ledgerId, savedLedgers, isInitializing } = useAppContext();
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-600">
+        載入中...
+      </div>
+    );
+  }
+
+  if (!ledgerId) {
+    return <OnboardingScreen />;
+  }
+
+  return <Layout />;
 };
 
 const App = () => {

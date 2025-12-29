@@ -1,8 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { Transaction, User, SavedLedger } from '../types';
 import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES } from '../constants';
 import { useAuth } from './AuthContext';
-import { db, isMockMode } from '../firebase';
+import { db, functions, isMockMode } from '../firebase';
 import { 
   collection, 
   query, 
@@ -11,14 +11,12 @@ import {
   where,
   limit,
   addDoc, 
-  deleteDoc, 
   doc, 
   updateDoc, 
   setDoc,
   getDoc,
-  arrayUnion,
-  serverTimestamp
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 
 
 
@@ -31,6 +29,8 @@ interface AppContextType {
   currentUser: User;
   users: User[];
   ledgerId: string | null;
+  isInitializing: boolean;
+  refreshUserProfile: () => Promise<void>;
   joinLedger: (id: string) => Promise<boolean>;
   createLedger: (name: string) => Promise<void>;
   switchLedger: (id: string) => Promise<void>;
@@ -72,6 +72,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [users, setUsers] = useState<User[]>([]);
   const [ledgerId, setLedgerId] = useState<string | null>(null);
   const [savedLedgers, setSavedLedgers] = useState<SavedLedger[]>([]);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   
@@ -137,11 +138,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  const refreshUserProfile = useCallback(async () => {
+    if (!authUser || !db || isMockMode) return;
+    try {
+      const userRef = doc(db, 'users', authUser.uid);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const userData = userSnap.data();
+        const currentSavedLedgers: SavedLedger[] = userData.savedLedgers || [];
+        setSavedLedgers(currentSavedLedgers);
+      }
+    } catch (e) {
+      console.error('Error refreshing user profile:', e);
+    }
+  }, [authUser, db, isMockMode]);
+
   // --- 1. Initialization Logic (User Login -> Load Profile -> Load Ledger) ---
   useEffect(() => {
     if (!authUser) return;
 
     const initializeUser = async () => {
+      setIsInitializing(true);
       // 1. Mock Mode Handling
       if (isMockMode) {
         setUsers([
@@ -166,10 +183,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setLedgerId(targetLedgerId);
         setSavedLedgers(profile.savedLedgers || []);
         localStorage.setItem(STORAGE_KEY_LEDGER_ID, targetLedgerId);
+        setIsInitializing(false);
         return;
       }
 
-      if (!db) return;
+      if (!db) {
+        setIsInitializing(false);
+        return;
+      }
 
       // 2. Real Firestore Handling
       const userRef = doc(db, 'users', authUser.uid);
@@ -184,6 +205,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           targetId = userData.lastLedgerId;
           currentSavedLedgers = userData.savedLedgers || [];
           setSavedLedgers(currentSavedLedgers);
+        } else {
+          setSavedLedgers([]);
+          await syncUserProfile(authUser.uid, { savedLedgers: [] });
+        }
+
+        if (!targetId && currentSavedLedgers.length > 0) {
+           const mostRecent = [...currentSavedLedgers].sort((a, b) => b.lastAccessedAt - a.lastAccessedAt)[0];
+           targetId = mostRecent?.id || '';
         }
 
         if (!targetId) {
@@ -204,7 +233,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                    await syncUserProfile(authUser.uid, { lastLedgerId: targetId });
                 }
              } else {
-                targetId = ''; 
+                const missingId = targetId;
+                targetId = '';
+                const filtered = currentSavedLedgers.filter(l => l.id !== missingId);
+                if (filtered.length !== currentSavedLedgers.length) {
+                  currentSavedLedgers = filtered;
+                  setSavedLedgers(filtered);
+                  await syncUserProfile(authUser.uid, { savedLedgers: filtered });
+                }
              }
           } catch (e) {
              console.error("Error verifying ledger:", e);
@@ -213,11 +249,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
 
         if (!targetId) {
-           await createNewLedgerInternal(authUser, '我的帳本', currentSavedLedgers);
+           setLedgerId(null);
+           localStorage.removeItem(STORAGE_KEY_LEDGER_ID);
+           await syncUserProfile(authUser.uid, { lastLedgerId: null });
         }
 
       } catch (e) {
         console.error("Error initializing user:", e);
+      } finally {
+        setIsInitializing(false);
       }
     };
 
@@ -468,20 +508,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return;
     }
 
-    if (!db) return;
-    
     try {
+        if (!functions) return;
+        const callLeave = httpsCallable(functions, 'leaveLedger');
+        await callLeave({ ledgerId: id });
+
         const newSavedList = savedLedgers.filter(l => l.id !== id);
         setSavedLedgers(newSavedList);
         await syncUserProfile(authUser.uid, { savedLedgers: newSavedList });
-
-        const ledgerRef = doc(db, 'ledgers', id);
-        const ledgerSnap = await getDoc(ledgerRef);
-        if (ledgerSnap.exists()) {
-            const data = ledgerSnap.data();
-            const newMembers = (data.members || []).filter((m: User) => m.uid !== authUser.uid);
-            await updateDoc(ledgerRef, { members: newMembers });
-        }
 
         if (ledgerId === id) {
             if (newSavedList.length > 0) {
@@ -490,7 +524,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 localStorage.setItem(STORAGE_KEY_LEDGER_ID, nextId);
                 await syncUserProfile(authUser.uid, { lastLedgerId: nextId });
             } else {
-                await createNewLedgerInternal(authUser, '我的新帳本', []);
+                setLedgerId(null);
+                localStorage.removeItem(STORAGE_KEY_LEDGER_ID);
+                await syncUserProfile(authUser.uid, { lastLedgerId: null, savedLedgers: [] });
             }
         }
     } catch (e: any) {
@@ -506,54 +542,39 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
      await syncUserProfile(authUser.uid, { savedLedgers: updatedList });
   };
 
-  const joinLedger = async (id: string): Promise<boolean> => {
+const joinLedger = async (id: string): Promise<boolean> => {
      if (isMockMode) {
        alert("演示模式下無法同步真實資料。");
        setLedgerId(id);
        return true;
      }
 
-     if (!db || !authUser) return false;
+     if (!authUser || !functions) return false;
      try {
-       const ref = doc(db, 'ledgers', id);
-       const snap = await getDoc(ref);
+       const callJoin = httpsCallable(functions, 'joinLedger');
+       const result = await callJoin({ ledgerId: id });
+       const data = result.data as { ok?: boolean; ledgerName?: string | null };
+
+       if (!data?.ok) return false;
+
+       const newEntry: SavedLedger = { 
+           id: id, 
+           alias: data.ledgerName || '已加入的帳本', 
+           lastAccessedAt: Date.now() 
+       };
        
-       if (snap.exists()) {
-         const data = snap.data();
-         
-         const members = data.members || [];
-         if (!members.find((m: any) => m.uid === authUser.uid)) {
-            await updateDoc(ref, {
-               members: arrayUnion({
-                  uid: authUser.uid,
-                  displayName: authUser.displayName,
-                  photoURL: authUser.photoURL,
-                  email: authUser.email
-               })
-            });
-         }
+       const newList = savedLedgers.filter(l => l.id !== id).concat(newEntry);
+       
+       setSavedLedgers(newList);
+       setLedgerId(id);
+       localStorage.setItem(STORAGE_KEY_LEDGER_ID, id);
 
-         const newEntry: SavedLedger = { 
-             id: id, 
-             alias: data.name || '已加入的帳本', 
-             lastAccessedAt: Date.now() 
-         };
-         
-         const newList = savedLedgers.filter(l => l.id !== id).concat(newEntry);
-         
-         setSavedLedgers(newList);
-         setLedgerId(id);
-         localStorage.setItem(STORAGE_KEY_LEDGER_ID, id);
+       await syncUserProfile(authUser.uid, { 
+           lastLedgerId: id,
+           savedLedgers: newList
+       });
 
-         await syncUserProfile(authUser.uid, { 
-             lastLedgerId: id,
-             savedLedgers: newList
-         });
-
-         return true;
-       } else {
-         return false;
-       }
+       return true;
      } catch (e: any) {
        console.error(e);
        alert(`加入帳本失敗：${e.message}`);
@@ -654,6 +675,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       currentUser,
       users: activeUsers,
       ledgerId,
+      isInitializing,
+      refreshUserProfile,
       joinLedger,
       createLedger,
       switchLedger,

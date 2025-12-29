@@ -133,10 +133,10 @@ const Statistics = () => {
             return { name: cat, amount };
         });
 
-        // 消費回饋虛擬分類
+        // 點券折抵虛擬分類
         const totalRewards = activeTransactions.reduce((acc, t) => acc + (t.rewards || 0), 0);
         if (totalRewards > 0) {
-            breakdownCategories.push({ name: '消費回饋', amount: totalRewards });
+            breakdownCategories.push({ name: '點券折抵', amount: totalRewards });
         }
 
         chartTotalAmount = breakdownCategories.reduce((acc, c) => acc + c.amount, 0);
@@ -186,7 +186,7 @@ const Statistics = () => {
   };
 
   const getCategoryColor = (cat: string) => {
-    if (cat === '消費回饋') return 'bg-amber-400';
+    if (cat === '點券折抵') return 'bg-amber-400';
     switch (cat) {
       case '餐飲': return 'bg-orange-500';
       case '交通': return 'bg-blue-500';
@@ -426,7 +426,7 @@ const Statistics = () => {
                   <div className="flex justify-between text-sm mb-1">
                     <span className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
                         {cat.name}
-                        {cat.name === '消費回饋' && <span className="text-[9px] bg-amber-100 text-amber-700 px-1 rounded">HOT</span>}
+                        {cat.name === '點券折抵' && <span className="text-[9px] bg-amber-100 text-amber-700 px-1 rounded">HOT</span>}
                     </span>
                     <span className="text-slate-500 dark:text-slate-400">{percentage}% (${cat.amount.toLocaleString()})</span>
                   </div>

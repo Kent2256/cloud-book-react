@@ -14,6 +14,8 @@ const mockAppContextValue: any = {
   users: [],
   currentUser: { uid: 'u1' },
   ledgerId: 'ledger1',
+  isInitializing: false,
+  refreshUserProfile: async () => {},
   joinLedger: async () => true,
   savedLedgers: [],
   switchLedger: async () => {},
