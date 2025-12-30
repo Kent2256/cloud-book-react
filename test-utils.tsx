@@ -7,6 +7,7 @@ import { AuthContext } from './contexts/AuthContext';
 const mockAppContextValue: any = {
   expenseCategories: [],
   incomeCategories: [],
+  addTransaction: async () => {},
   addCategory: async () => {},
   deleteCategory: async () => {},
   resetCategories: async () => {},
@@ -20,10 +21,12 @@ const mockAppContextValue: any = {
   savedLedgers: [],
   switchLedger: async () => {},
   createLedger: async () => {},
+  createRecurringTemplate: async () => {},
   leaveLedger: async () => {},
   updateLedgerAlias: async () => {},
   isDarkMode: false,
   toggleTheme: () => {},
+  syncTransactions: async () => {},
 };
 
 const mockAuthContextValue: any = {

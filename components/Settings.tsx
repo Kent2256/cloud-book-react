@@ -3,6 +3,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { validateApiKey } from '../services/geminiService';
+import { db } from '../firebase';
+import { collection, deleteDoc, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 
 // --- Icons ---
 const DownloadIcon = ({ className }: { className?: string }) => (
@@ -219,13 +221,15 @@ const Settings = () => {
     createLedger,
     leaveLedger,
     updateLedgerAlias,
+    expenseCategories,
+    incomeCategories,
     isDarkMode,
     toggleTheme,
     syncTransactions,
     lastSyncedAt,
     isSyncing,
   } = useAppContext();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -237,6 +241,22 @@ const Settings = () => {
   const [tempAlias, setTempAlias] = useState('');
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showLedgerSwitcher, setShowLedgerSwitcher] = useState(false);
+  const [showLedgerList, setShowLedgerList] = useState(false);
+  const [pendingSwitchId, setPendingSwitchId] = useState<string | null>(null);
+  const [recurringTemplates, setRecurringTemplates] = useState<any[]>([]);
+  const [isLoadingRecurring, setIsLoadingRecurring] = useState(false);
+  const [showChangelog, setShowChangelog] = useState(false);
+  const [changelog, setChangelog] = useState<any>(null);
+  const [isLoadingChangelog, setIsLoadingChangelog] = useState(false);
+  const [editingRecurring, setEditingRecurring] = useState<any | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editType, setEditType] = useState<'expense' | 'income'>('expense');
+  const [editCategory, setEditCategory] = useState('');
+  const [editExecuteDay, setEditExecuteDay] = useState(1);
+  const [editIntervalMonths, setEditIntervalMonths] = useState(1);
+  const [editRunMode, setEditRunMode] = useState<'continuous' | 'limited'>('continuous');
+  const [editTotalRuns, setEditTotalRuns] = useState('12');
 
   const [apiKeyInput, setApiKeyInput] = useState<string>(localStorage.getItem('user_gemini_key') || '');
   const [isTesting, setIsTesting] = useState(false);
@@ -308,6 +328,48 @@ const Settings = () => {
       setModels((cur) => (modelSelected ? [modelSelected, ...cur] : cur));
     }
   }, []);
+
+  useEffect(() => {
+    const loadRecurringTemplates = async () => {
+      if (!db || !ledgerId || !user) return;
+      setIsLoadingRecurring(true);
+      try {
+        const q = query(
+          collection(db, 'recurring_templates'),
+          where('ledgerId', '==', ledgerId),
+          where('userId', '==', user.uid)
+        );
+        const snap = await getDocs(q);
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setRecurringTemplates(list);
+      } catch (e) {
+        console.error('Load recurring templates failed:', e);
+      } finally {
+        setIsLoadingRecurring(false);
+      }
+    };
+
+    loadRecurringTemplates();
+  }, [ledgerId, user]);
+
+  useEffect(() => {
+    const loadChangelog = async () => {
+      if (!showChangelog) return;
+      setIsLoadingChangelog(true);
+      try {
+        const res = await fetch('/changelog.json', { cache: 'no-store' });
+        const data = await res.json();
+        setChangelog(data);
+      } catch (e) {
+        console.error('Load changelog failed:', e);
+        setChangelog(null);
+      } finally {
+        setIsLoadingChangelog(false);
+      }
+    };
+
+    loadChangelog();
+  }, [showChangelog]);
 
   const handleCreateLedger = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -417,7 +479,181 @@ const Settings = () => {
     showMsg('success', '已觸發同步');
   };
 
+  const formatRecurringDate = (value: any) => {
+    if (!value) return '—';
+    const date = value.toDate ? value.toDate() : new Date(value);
+    return date.toLocaleDateString('zh-TW');
+  };
+
+  const addMonthsWithDay = (base: Date, months: number, day: number) => {
+    const year = base.getFullYear();
+    const monthIndex = base.getMonth() + months;
+    const targetYear = year + Math.floor(monthIndex / 12);
+    const targetMonth = ((monthIndex % 12) + 12) % 12;
+    const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const safeDay = Math.min(day, daysInMonth);
+    const next = new Date(targetYear, targetMonth, safeDay);
+    next.setHours(0, 0, 0, 0);
+    return next;
+  };
+
+  const computeNextRunAt = (day: number, interval: number) => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    const daysInMonth = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+    const safeDay = Math.min(day, daysInMonth);
+    let next = new Date(base.getFullYear(), base.getMonth(), safeDay);
+    next.setHours(0, 0, 0, 0);
+    if (next < now) {
+      next = addMonthsWithDay(next, interval, day);
+    }
+    return next;
+  };
+
+  const toggleRecurringActive = async (id: string, next: boolean) => {
+    if (!db) return;
+    try {
+      await updateDoc(doc(db, 'recurring_templates', id), {
+        isActive: next,
+        updatedAt: Date.now()
+      });
+      setRecurringTemplates((cur) => cur.map((t) => t.id === id ? { ...t, isActive: next } : t));
+    } catch (e) {
+      console.error('Update recurring template failed:', e);
+    }
+  };
+
+  const deleteRecurringTemplate = async (id: string) => {
+    if (!db) return;
+    const confirm = window.confirm('確定要刪除這筆固定收支設定嗎？');
+    if (!confirm) return;
+    try {
+      await deleteDoc(doc(db, 'recurring_templates', id));
+      setRecurringTemplates((cur) => cur.filter((t) => t.id !== id));
+    } catch (e) {
+      console.error('Delete recurring template failed:', e);
+    }
+  };
+
+  const openRecurringEditor = (t: any) => {
+    setEditingRecurring(t);
+    setEditTitle(t.title || '');
+    setEditAmount(String(t.amount ?? ''));
+    setEditType(t.type === 'income' ? 'income' : 'expense');
+    setEditCategory(t.category || '');
+    setEditExecuteDay(Number(t.executeDay || 1));
+    setEditIntervalMonths(Number(t.intervalMonths || 1));
+    if (typeof t.remainingRuns === 'number' || typeof t.totalRuns === 'number') {
+      setEditRunMode('limited');
+      setEditTotalRuns(String(t.totalRuns || t.remainingRuns || 1));
+    } else {
+      setEditRunMode('continuous');
+      setEditTotalRuns('12');
+    }
+  };
+
+  const saveRecurringEditor = async () => {
+    if (!editingRecurring || !db) return;
+    const amountValue = Number(editAmount);
+    if (!editTitle.trim() || Number.isNaN(amountValue)) return;
+    const interval = Math.max(Number(editIntervalMonths) || 1, 1);
+    const day = Math.min(Math.max(Number(editExecuteDay) || 1, 1), 31);
+    const nextRunAt = computeNextRunAt(day, interval);
+    const updates: any = {
+      title: editTitle.trim(),
+      amount: amountValue,
+      type: editType,
+      category: editCategory || '其他',
+      intervalMonths: interval,
+      executeDay: day,
+      nextRunAt,
+      updatedAt: Date.now()
+    };
+    if (editRunMode === 'limited') {
+      const total = Math.max(parseInt(editTotalRuns, 10) || 1, 1);
+      updates.totalRuns = total;
+      updates.remainingRuns = total;
+    } else {
+      updates.totalRuns = null;
+      updates.remainingRuns = null;
+    }
+
+    try {
+      await updateDoc(doc(db, 'recurring_templates', editingRecurring.id), updates);
+      setRecurringTemplates((cur) => cur.map((t) => t.id === editingRecurring.id ? { ...t, ...updates } : t));
+      setEditingRecurring(null);
+    } catch (e) {
+      console.error('Save recurring template failed:', e);
+    }
+  };
+
   const currentLedger = savedLedgers.find((l) => l.id === ledgerId);
+
+  const renderLedgerList = (showActions: boolean, onSelect?: () => void) => (
+    <div className="space-y-3">
+      <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">我的帳本列表</label>
+      {savedLedgers.map((ledger) => {
+        const isActive = ledger.id === ledgerId;
+        const isEditing = editingLedgerId === ledger.id;
+        return (
+          <div
+            key={ledger.id}
+            className={`p-3 rounded-xl border transition-all ${isActive ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800 ring-1 ring-indigo-200 dark:ring-indigo-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-300'}`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              {isEditing && showActions ? (
+                <div className="flex-1 flex gap-2">
+                  <input
+                    type="text"
+                    value={tempAlias}
+                    onChange={(e) => setTempAlias(e.target.value)}
+                    className="flex-1 px-2 py-1 text-sm border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+                    autoFocus
+                  />
+                  <button onClick={saveAlias} className="text-xs bg-indigo-600 text-white px-2 py-1 rounded">儲存</button>
+                </div>
+              ) : (
+                <div
+                  className="flex-1 cursor-pointer"
+                  onClick={() => {
+                    if (!isActive) setPendingSwitchId(ledger.id);
+                    if (onSelect) onSelect();
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <h4 className={`font-bold text-sm ${isActive ? 'text-indigo-900 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>{ledger.alias}</h4>
+                    {isActive && <CheckCircleIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />}
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono mt-0.5 truncate max-w-[180px]">ID: {ledger.id}</div>
+                </div>
+              )}
+
+              {showActions && (
+                <div className="flex items-center gap-1">
+                  <button onClick={() => copyId(ledger.id)} className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg" title="複製 ID">
+                    <CopyIcon className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => startEditing(ledger.id, ledger.alias)} className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg" title="修改備註">
+                    <EditIcon className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => handleLeaveLedger(ledger.id, ledger.alias)} className="p-1.5 text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg" title="退出帳本">
+                    <LogOutIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {savedLedgers.length === 0 && (
+        <div className="text-sm text-slate-500">尚無帳本可切換。</div>
+      )}
+    </div>
+  );
+
+  const pendingLedger = savedLedgers.find((l) => l.id === pendingSwitchId);
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <div className="flex justify-between items-center">
@@ -442,20 +678,6 @@ const Settings = () => {
         </div>
       )}
 
-      <button
-        onClick={() => setShowLedgerSwitcher(true)}
-        className="w-full bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800 text-left hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors"
-      >
-        <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">目前帳本</div>
-        <div className="flex items-center justify-between mt-2">
-          <div>
-            <div className="text-sm font-bold text-slate-800 dark:text-slate-100">{currentLedger?.alias || '未選擇'}</div>
-            {ledgerId && <div className="text-[11px] text-slate-400 font-mono mt-0.5 truncate max-w-[220px]">ID: {ledgerId}</div>}
-          </div>
-          <ChevronRightIcon className="w-5 h-5 text-slate-400" />
-        </div>
-      </button>
-
       <SectionCard title="資料同步" description="顯示最後同步時間，可手動觸發同步。">
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm text-slate-700 dark:text-slate-200">上次同步：{formatLastSync()}</div>
@@ -472,54 +694,66 @@ const Settings = () => {
 
       <SectionCard title="帳本與分類" description="切換帳本、管理分類並查看成員。">
         <div className="space-y-4">
-          <div className="space-y-3">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">我的帳本列表</label>
-            {savedLedgers.map((ledger) => {
-              const isActive = ledger.id === ledgerId;
-              const isEditing = editingLedgerId === ledger.id;
-              return (
-                <div
-                  key={ledger.id}
-                  className={`p-3 rounded-xl border transition-all ${isActive ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800 ring-1 ring-indigo-200 dark:ring-indigo-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-300'}`}
+          <button
+            onClick={() => setShowLedgerSwitcher(true)}
+            className="w-full bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800 text-left hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors"
+          >
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">目前帳本</div>
+            <div className="flex items-center justify-between mt-2 gap-3">
+              <div>
+                <div className="text-sm font-bold text-slate-800 dark:text-slate-100">{currentLedger?.alias || '未選擇'}</div>
+                {ledgerId && <div className="text-[11px] text-slate-400 font-mono mt-0.5 truncate max-w-[220px]">ID: {ledgerId}</div>}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (ledgerId) copyId(ledgerId);
+                  }}
+                  className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+                  title="複製 ID"
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    {isEditing ? (
-                      <div className="flex-1 flex gap-2">
-                        <input
-                          type="text"
-                          value={tempAlias}
-                          onChange={(e) => setTempAlias(e.target.value)}
-                          className="flex-1 px-2 py-1 text-sm border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white"
-                          autoFocus
-                        />
-                        <button onClick={saveAlias} className="text-xs bg-indigo-600 text-white px-2 py-1 rounded">儲存</button>
-                      </div>
-                    ) : (
-                      <div className="flex-1 cursor-pointer" onClick={() => !isActive && switchLedger(ledger.id)}>
-                        <div className="flex items-center gap-2">
-                          <h4 className={`font-bold text-sm ${isActive ? 'text-indigo-900 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>{ledger.alias}</h4>
-                          {isActive && <CheckCircleIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />}
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5 truncate max-w-[180px]">ID: {ledger.id}</div>
-                      </div>
-                    )}
+                  <CopyIcon className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (currentLedger) {
+                      setShowLedgerList(true);
+                      startEditing(currentLedger.id, currentLedger.alias);
+                    }
+                  }}
+                  className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+                  title="修改備註"
+                >
+                  <EditIcon className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (currentLedger) handleLeaveLedger(currentLedger.id, currentLedger.alias);
+                  }}
+                  className="p-1.5 text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg"
+                  title="退出帳本"
+                >
+                  <LogOutIcon className="w-4 h-4" />
+                </button>
+                <ChevronRightIcon className="w-5 h-5 text-slate-400" />
+              </div>
+            </div>
+          </button>
 
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => copyId(ledger.id)} className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg" title="複製 ID">
-                        <CopyIcon className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => startEditing(ledger.id, ledger.alias)} className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg" title="修改備註">
-                        <EditIcon className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => handleLeaveLedger(ledger.id, ledger.alias)} className="p-1.5 text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg" title="退出帳本">
-                        <LogOutIcon className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <button
+            onClick={() => setShowLedgerList((v) => !v)}
+            className="w-full text-left text-xs font-semibold text-slate-400 uppercase tracking-wider"
+          >
+            {showLedgerList ? '收合帳本列表' : '展開帳本列表'}
+          </button>
+
+          {showLedgerList && renderLedgerList(true)}
 
           <div className="grid grid-cols-1 gap-4 border-t border-slate-100 dark:border-slate-800 pt-4">
             <form onSubmit={handleCreateLedger} className="space-y-2">
@@ -603,6 +837,61 @@ const Settings = () => {
         </div>
       </SectionCard>
 
+      <SectionCard title="固定收支設定" description="管理每月重複的固定收支。">
+        {isLoadingRecurring ? (
+          <div className="text-sm text-slate-500">載入中...</div>
+        ) : (
+          <div className="space-y-3">
+            {recurringTemplates.map((t) => (
+              <div key={t.id} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{t.title || '固定收支'}</div>
+                    <div className="text-xs text-slate-400 mt-1 whitespace-nowrap truncate">
+                      {t.type === 'income' ? '收入' : '支出'} · {t.category || '其他'} · 每 {t.intervalMonths || 1} 個月 · {t.executeDay} 號
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1 whitespace-nowrap truncate">
+                      下次執行：{formatRecurringDate(t.nextRunAt)}
+                      {typeof t.remainingRuns === 'number' && <span className="ml-2">剩餘 {t.remainingRuns} 次</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 flex-shrink-0">
+                    <div className="flex flex-col gap-2">
+                      <button
+                        onClick={() => openRecurringEditor(t)}
+                        className="px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                      >
+                        編輯
+                      </button>
+                      <button
+                        onClick={() => deleteRecurringTemplate(t.id)}
+                        className="px-2 py-1.5 text-xs rounded-lg border border-rose-200 text-rose-500 hover:bg-rose-50 dark:border-rose-800/60 dark:text-rose-400 dark:hover:bg-rose-900/20"
+                      >
+                        刪除
+                      </button>
+                    </div>
+                    <label className="inline-flex relative items-center cursor-pointer mt-1">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(t.isActive)}
+                        onChange={(e) => toggleRecurringActive(t.id, e.target.checked)}
+                        className="sr-only"
+                      />
+                      <div className={`relative w-11 h-6 rounded-full transition-colors ${t.isActive ? 'bg-indigo-600' : 'bg-gray-200'}`}>
+                        <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${t.isActive ? 'translate-x-5' : ''}`}></span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {recurringTemplates.length === 0 && (
+              <div className="text-sm text-slate-500">尚無固定收支設定。</div>
+            )}
+          </div>
+        )}
+      </SectionCard>
+
       <SectionCard title="資料與匯出" description="下載備份或匯入資料。">
         <div className="grid grid-cols-2 gap-3">
           <button
@@ -679,16 +968,29 @@ const Settings = () => {
             </div>
             <div>
               <label className="inline-flex relative items-center cursor-pointer">
-                <input type="checkbox" checked={enabled} onChange={toggleEnabled} className="sr-only peer" />
-                <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer ${enabled ? 'peer-checked:bg-indigo-600' : ''}`}></div>
+                <input type="checkbox" checked={enabled} onChange={toggleEnabled} className="sr-only" />
+                <div className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-indigo-600' : 'bg-gray-200'}`}>
+                  <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-5' : ''}`}></span>
+                </div>
               </label>
             </div>
           </div>
         </div>
       </SectionCard>
 
+      <button
+        onClick={() => setShowChangelog(true)}
+        className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:border-indigo-200 dark:hover:border-indigo-800 transition-all group"
+      >
+        <div className="text-left">
+          <div className="font-bold text-slate-700 dark:text-slate-200 group-hover:text-indigo-700 dark:group-hover:text-indigo-300">更新紀錄</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">查看最新功能與修正內容</div>
+        </div>
+        <ChevronRightIcon className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 group-hover:translate-x-1 transition-all" />
+      </button>
+
       <div className="text-center text-xs text-slate-400 py-4">
-        CloudLedger 雲記 v3.4.1 © 2025 KrendStudio
+        CloudLedger 雲記 v3.5.0 © 2025 KrendStudio
       </div>
 
       {showLedgerSwitcher && (
@@ -702,22 +1004,7 @@ const Settings = () => {
               <div className="text-xs text-slate-400 mt-1">切換後會回到首頁</div>
             </div>
             <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
-              {savedLedgers.map((ledger) => (
-                <button
-                  key={ledger.id}
-                  onClick={() => {
-                    if (ledger.id !== ledgerId) switchLedger(ledger.id);
-                    setShowLedgerSwitcher(false);
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-lg border transition ${ledger.id === ledgerId ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-300'}`}
-                >
-                  <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{ledger.alias}</div>
-                  <div className="text-[11px] text-slate-400 font-mono truncate">ID: {ledger.id}</div>
-                </button>
-              ))}
-              {savedLedgers.length === 0 && (
-                <div className="text-sm text-slate-500">尚無帳本可切換。</div>
-              )}
+              {renderLedgerList(false, () => setShowLedgerSwitcher(false))}
             </div>
             <div className="p-4 border-t border-slate-100 dark:border-slate-800">
               <button
@@ -727,6 +1014,197 @@ const Settings = () => {
                 關閉
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {pendingSwitchId && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setPendingSwitchId(null)}>
+          <div
+            className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-bold text-slate-800 dark:text-slate-100">切換帳本</div>
+            <div className="text-sm text-slate-500 mt-2">
+              是否切換到「{pendingLedger?.alias || '未命名帳本'}」？
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setPendingSwitchId(null)}
+                className="flex-1 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-sm"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  if (pendingSwitchId) switchLedger(pendingSwitchId);
+                  setPendingSwitchId(null);
+                }}
+                className="flex-1 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm"
+              >
+                切換
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingRecurring && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setEditingRecurring(null)}>
+          <div
+            className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-bold text-slate-800 dark:text-slate-100">編輯固定收支</div>
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">標題</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm outline-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">金額</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    className="w-full p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">類型</label>
+                  <select
+                    value={editType}
+                    onChange={(e) => setEditType(e.target.value as 'expense' | 'income')}
+                    className="w-full p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm outline-none"
+                  >
+                    <option value="expense">支出</option>
+                    <option value="income">收入</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">分類</label>
+                <select
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                  className="w-full p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm outline-none"
+                >
+                  {(editType === 'expense' ? expenseCategories : incomeCategories).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">每月扣款日</label>
+                  <select
+                    value={editExecuteDay}
+                    onChange={(e) => setEditExecuteDay(Number(e.target.value))}
+                    className="w-full p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm outline-none"
+                  >
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                      <option key={d} value={d}>{d} 號</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">每 N 個月</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={editIntervalMonths}
+                    onChange={(e) => setEditIntervalMonths(Number(e.target.value))}
+                    className="w-full p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">執行次數</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditRunMode('continuous')}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm border ${editRunMode === 'continuous' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}
+                  >
+                    持續
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditRunMode('limited')}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm border ${editRunMode === 'limited' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}
+                  >
+                    指定次數
+                  </button>
+                </div>
+                {editRunMode === 'limited' && (
+                  <input
+                    type="number"
+                    min={1}
+                    value={editTotalRuns}
+                    onChange={(e) => setEditTotalRuns(e.target.value)}
+                    className="w-full p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm outline-none mt-2"
+                    placeholder="例如：12"
+                  />
+                )}
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setEditingRecurring(null)}
+                className="flex-1 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-sm"
+              >
+                取消
+              </button>
+              <button
+                onClick={saveRecurringEditor}
+                className="flex-1 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm"
+              >
+                儲存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showChangelog && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setShowChangelog(false)}>
+          <div
+            className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-bold text-slate-800 dark:text-slate-100">更新紀錄</div>
+            <div className="mt-3 space-y-4 max-h-[60vh] overflow-y-auto">
+              {isLoadingChangelog && <div className="text-sm text-slate-500">載入中...</div>}
+              {!isLoadingChangelog && changelog?.versions?.map((v: any) => (
+                <div key={v.version} className="border border-slate-200 dark:border-slate-700 rounded-xl p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-slate-800 dark:text-slate-100">v{v.version}</div>
+                    {v.date && <div className="text-xs text-slate-400">{v.date}</div>}
+                  </div>
+                  <ul className="mt-2 space-y-1 text-sm text-slate-600 dark:text-slate-300">
+                    {v.notes?.map((n: string, idx: number) => (
+                      <li key={`${v.version}-${idx}`}>- {n}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+              {!isLoadingChangelog && (!changelog || !changelog.versions) && (
+                <div className="text-sm text-slate-500">沒有可用的更新紀錄。</div>
+              )}
+            </div>
+            <button
+              onClick={() => setShowChangelog(false)}
+              className="mt-4 w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-sm"
+            >
+              關閉
+            </button>
           </div>
         </div>
       )}

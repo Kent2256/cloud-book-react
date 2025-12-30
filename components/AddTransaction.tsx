@@ -32,7 +32,7 @@ interface Props {
 
 const AddTransaction: React.FC<Props> = ({ onComplete, autoStartVoice = false }) => {
   // 1. 從 AppContext 取出分類
-  const { addTransaction, currentUser, selectedDate, expenseCategories, incomeCategories } = useAppContext();
+  const { addTransaction, createRecurringTemplate, currentUser, ledgerId, selectedDate, expenseCategories, incomeCategories } = useAppContext();
   // 智慧輸入是否已啟用（由 Settings 控制並存在 localStorage）
   const [isAIEnabled, setIsAIEnabled] = useState<boolean>(() => {
     return localStorage.getItem('user_gemini_enabled') === '1';
@@ -67,6 +67,14 @@ const AddTransaction: React.FC<Props> = ({ onComplete, autoStartVoice = false })
   
   const [description, setDescription] = useState('');
   const [rewards, setRewards] = useState<string>('0');
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [executeDay, setExecuteDay] = useState<number>(() => {
+    const today = new Date();
+    return today.getDate();
+  });
+  const [intervalMonths, setIntervalMonths] = useState<number>(1);
+  const [runMode, setRunMode] = useState<'continuous' | 'limited'>('continuous');
+  const [totalRuns, setTotalRuns] = useState<string>('12');
   
   // Initialize date with selectedDate or today
   const [date, setDate] = useState(() => {
@@ -76,6 +84,41 @@ const AddTransaction: React.FC<Props> = ({ onComplete, autoStartVoice = false })
     const day = String(target.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   });
+
+  useEffect(() => {
+    if (isRecurring) return;
+    const day = Number(date.split('-')[2]);
+    if (!Number.isNaN(day)) {
+      setExecuteDay(day);
+    }
+  }, [date, isRecurring]);
+
+  const addMonthsWithDay = (base: Date, months: number, day: number) => {
+    const year = base.getFullYear();
+    const monthIndex = base.getMonth() + months;
+    const targetYear = year + Math.floor(monthIndex / 12);
+    const targetMonth = ((monthIndex % 12) + 12) % 12;
+    const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const safeDay = Math.min(day, daysInMonth);
+    const next = new Date(targetYear, targetMonth, safeDay);
+    next.setHours(0, 0, 0, 0);
+    return next;
+  };
+
+  const computeNextRunAt = (day: number, interval: number) => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const base = new Date(date);
+    base.setHours(0, 0, 0, 0);
+    const daysInMonth = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+    const safeDay = Math.min(day, daysInMonth);
+    let next = new Date(base.getFullYear(), base.getMonth(), safeDay);
+    next.setHours(0, 0, 0, 0);
+    if (next < now) {
+      next = addMonthsWithDay(next, interval, day);
+    }
+    return next;
+  };
 
   // If autoStartVoice was requested, trigger voice input on mount when in smart mode
   useEffect(() => {
@@ -181,19 +224,50 @@ const AddTransaction: React.FC<Props> = ({ onComplete, autoStartVoice = false })
     }
   };
 
-  const handleManualSubmit = (e: React.FormEvent) => {
+  const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    addTransaction({
-      amount: parseFloat(amount),
-      type,
-      category: category,
-      description,
-      rewards: parseFloat(rewards) || 0,
-      date: new Date(date).toISOString(),
-      creatorUid: currentUser.uid, 
-      ledgerId: 'mock-ledger-1' 
-    });
-    onComplete();
+    if (!ledgerId) return;
+    const amountValue = parseFloat(amount);
+    if (Number.isNaN(amountValue)) return;
+
+    try {
+      await addTransaction({
+        amount: amountValue,
+        type,
+        category: category,
+        description,
+        rewards: parseFloat(rewards) || 0,
+        date: new Date(date).toISOString(),
+        creatorUid: currentUser.uid, 
+        ledgerId
+      });
+
+      if (isRecurring) {
+        const day = Math.min(Math.max(executeDay, 1), 31);
+        const interval = Math.max(Number(intervalMonths) || 1, 1);
+        const nextRunAt = computeNextRunAt(day, interval);
+        const isLimited = runMode === 'limited';
+        const runs = isLimited ? Math.max(parseInt(totalRuns, 10) || 1, 1) : undefined;
+
+        await createRecurringTemplate({
+          title: description,
+          amount: amountValue,
+          type: type === TransactionType.EXPENSE ? 'expense' : 'income',
+          category,
+          note: '',
+          intervalMonths: interval,
+          executeDay: day,
+          nextRunAt,
+          totalRuns: runs,
+          remainingRuns: runs
+        });
+      }
+
+      onComplete();
+    } catch (e) {
+      console.error('Save transaction failed:', e);
+      alert('儲存失敗，請稍後再試。');
+    }
   };
 
   const inputClass = "w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:bg-white dark:focus:bg-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-slate-100 transition-colors";
@@ -362,6 +436,80 @@ const AddTransaction: React.FC<Props> = ({ onComplete, autoStartVoice = false })
                   placeholder="0"
                 />
               </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">設為週期性</div>
+                  <div className="text-[11px] text-slate-400">每月自動記帳（分期或固定費用）</div>
+                </div>
+                <label className="inline-flex relative items-center cursor-pointer">
+                  <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} className="sr-only" />
+                  <div className={`relative w-11 h-6 rounded-full transition-colors ${isRecurring ? 'bg-indigo-600' : 'bg-gray-200'}`}>
+                    <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${isRecurring ? 'translate-x-5' : ''}`}></span>
+                  </div>
+                </label>
+              </div>
+
+              {isRecurring && (
+                <div className="mt-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">每月扣款日</label>
+                      <select
+                        value={executeDay}
+                        onChange={(e) => setExecuteDay(Number(e.target.value))}
+                        className={`${inputClass} p-2.5 text-sm`}
+                      >
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                          <option key={d} value={d}>{d} 號</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">每 N 個月</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={intervalMonths}
+                        onChange={(e) => setIntervalMonths(Number(e.target.value))}
+                        className={`${inputClass} p-2.5 text-sm`}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">執行次數</label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRunMode('continuous')}
+                        className={`flex-1 px-3 py-2 rounded-lg text-sm border ${runMode === 'continuous' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}
+                      >
+                        持續
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRunMode('limited')}
+                        className={`flex-1 px-3 py-2 rounded-lg text-sm border ${runMode === 'limited' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}
+                      >
+                        指定次數
+                      </button>
+                    </div>
+                    {runMode === 'limited' && (
+                      <input
+                        type="number"
+                        min={1}
+                        value={totalRuns}
+                        onChange={(e) => setTotalRuns(e.target.value)}
+                        className={`${inputClass} p-2.5 text-sm mt-2`}
+                        placeholder="例如：12"
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <button

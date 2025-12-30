@@ -22,7 +22,7 @@ import { httpsCallable } from 'firebase/functions';
 
 interface AppContextType {
   transactions: Transaction[];
-  addTransaction: (t: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  addTransaction: (t: Omit<Transaction, 'id' | 'createdAt'>) => Promise<void>;
   deleteTransaction: (id: string) => void;
   updateTransaction: (id: string, updates: Partial<Omit<Transaction, 'id' | 'createdAt'>>) => void;
   loadData: (data: { transactions: Transaction[], users: User[] }) => void;
@@ -33,6 +33,18 @@ interface AppContextType {
   refreshUserProfile: () => Promise<void>;
   joinLedger: (id: string) => Promise<boolean>;
   createLedger: (name: string) => Promise<void>;
+  createRecurringTemplate: (data: {
+    title: string;
+    amount: number;
+    type: 'expense' | 'income';
+    category: string;
+    note?: string;
+    intervalMonths: number;
+    executeDay: number;
+    nextRunAt: Date;
+    totalRuns?: number;
+    remainingRuns?: number;
+  }) => Promise<void>;
   switchLedger: (id: string) => Promise<void>;
   leaveLedger: (id: string) => Promise<void>;
   updateLedgerAlias: (id: string, alias: string) => Promise<void>;
@@ -484,6 +496,45 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await createNewLedgerInternal(authUser, name, savedLedgers);
   };
 
+  const createRecurringTemplate = async (data: {
+    title: string;
+    amount: number;
+    type: 'expense' | 'income';
+    category: string;
+    note?: string;
+    intervalMonths: number;
+    executeDay: number;
+    nextRunAt: Date;
+    totalRuns?: number;
+    remainingRuns?: number;
+  }) => {
+    if (!authUser || !db || !ledgerId || isMockMode) return;
+    try {
+      const payload: any = {
+        userId: authUser.uid,
+        ledgerId,
+        title: data.title,
+        amount: data.amount,
+        type: data.type,
+        category: data.category,
+        note: data.note || null,
+        frequency: 'monthly',
+        intervalMonths: data.intervalMonths,
+        executeDay: data.executeDay,
+        nextRunAt: data.nextRunAt,
+        isActive: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      if (typeof data.totalRuns === 'number') payload.totalRuns = data.totalRuns;
+      if (typeof data.remainingRuns === 'number') payload.remainingRuns = data.remainingRuns;
+      await addDoc(collection(db, 'recurring_templates'), payload);
+    } catch (e) {
+      console.error('Create recurring template failed:', e);
+      throw e;
+    }
+  };
+
   const switchLedger = async (id: string) => {
       if (!authUser) return;
       setLedgerId(id);
@@ -598,6 +649,7 @@ const joinLedger = async (id: string): Promise<boolean> => {
     setTransactions(prev => [optimistic, ...prev]);
     try {
       await addDoc(collection(db, `ledgers/${ledgerId}/transactions`), { ...t, createdAt: now, updatedAt: now, creatorUid: authUser.uid });
+      setTransactions(prev => prev.filter(tx => tx.id !== tempId));
       // refresh incrementally
       await syncTransactions();
     } catch (e: any) {
@@ -679,6 +731,7 @@ const joinLedger = async (id: string): Promise<boolean> => {
       refreshUserProfile,
       joinLedger,
       createLedger,
+      createRecurringTemplate,
       switchLedger,
       leaveLedger,
       updateLedgerAlias,

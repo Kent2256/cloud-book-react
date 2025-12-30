@@ -106,7 +106,7 @@ const Layout = () => {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-24 transition-colors duration-300">
       {/* Top Header */}
-      <header className="bg-white dark:bg-slate-900 shadow-sm border-b border-transparent dark:border-slate-800 px-4 py-3 sticky top-0 z-10 flex justify-between items-center transition-colors">
+      <header className="bg-white dark:bg-slate-900 shadow-sm border-b border-transparent dark:border-slate-800 px-4 py-4 sticky top-0 z-[800] flex justify-between items-center transition-colors">
         <div className="flex items-center gap-2">
           <img 
                 src="/apple-touch-icon.png" 

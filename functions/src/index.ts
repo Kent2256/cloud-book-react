@@ -174,6 +174,143 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
   }, { merge: true });
 });
 
+const addMonthsWithDay = (base: Date, months: number, day: number) => {
+  const year = base.getFullYear();
+  const monthIndex = base.getMonth() + months;
+  const targetYear = year + Math.floor(monthIndex / 12);
+  const targetMonth = ((monthIndex % 12) + 12) % 12;
+  const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const safeDay = Math.min(day, daysInMonth);
+  const next = new Date(targetYear, targetMonth, safeDay);
+  next.setHours(0, 0, 0, 0);
+  return next;
+};
+
+const buildRecurringTransaction = (data: any, ledgerId: string, userId: string, date: Date) => {
+  const txType = data.type === 'income' ? 'INCOME' : 'EXPENSE';
+  return {
+    amount: data.amount || 0,
+    type: txType,
+    category: data.category || '其他',
+    description: data.title || '固定收支',
+    rewards: 0,
+    date: date.toISOString(),
+    creatorUid: userId,
+    ledgerId,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+};
+
+export const onRecurringTemplateCreate = functionsV1.firestore
+  .document('recurring_templates/{templateId}')
+  .onCreate(async (snap) => {
+    const data = snap.data() || {};
+    const ledgerId = data.ledgerId as string | undefined;
+    const userId = data.userId as string | undefined;
+    const nextRunAt = data.nextRunAt?.toDate?.() as Date | undefined;
+    const isActive = data.isActive !== false;
+    const remainingRuns = data.remainingRuns as number | undefined;
+
+    if (!ledgerId || !userId || !nextRunAt || !isActive) {
+      return null;
+    }
+
+    if (typeof remainingRuns === 'number' && remainingRuns <= 0) {
+      await snap.ref.update({
+        isActive: false,
+        remainingRuns: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      return null;
+    }
+
+    const db = admin.firestore();
+    const txRef = db.collection(`ledgers/${ledgerId}/transactions`).doc();
+    const batch = db.batch();
+    batch.set(txRef, buildRecurringTransaction(data, ledgerId, userId, nextRunAt));
+    batch.update(snap.ref, {
+      precreatedFor: admin.firestore.Timestamp.fromDate(nextRunAt),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    await batch.commit();
+    return null;
+  });
+
+export const processRecurringTemplates = functionsV1.pubsub.schedule('every 24 hours').onRun(async () => {
+  const db = admin.firestore();
+  const now = admin.firestore.Timestamp.now();
+  const snap = await db
+    .collection('recurring_templates')
+    .where('isActive', '==', true)
+    .where('nextRunAt', '<=', now)
+    .get();
+
+  if (snap.empty) return null;
+
+  const batch = db.batch();
+
+  snap.docs.forEach((docSnap) => {
+    const data = docSnap.data() || {};
+    const ledgerId = data.ledgerId as string | undefined;
+    const userId = data.userId as string | undefined;
+    const nextRunAt = data.nextRunAt?.toDate?.() as Date | undefined;
+    const precreatedFor = data.precreatedFor?.toDate?.() as Date | undefined;
+
+    if (!ledgerId || !userId || !nextRunAt) {
+      return;
+    }
+
+    const remainingRuns = data.remainingRuns as number | undefined;
+    if (typeof remainingRuns === 'number' && remainingRuns <= 0) {
+      batch.update(docSnap.ref, {
+        isActive: false,
+        remainingRuns: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      return;
+    }
+
+    const nextRunTime = nextRunAt.getTime();
+    const precreatedTime = precreatedFor ? precreatedFor.getTime() : null;
+    if (precreatedTime !== nextRunTime) {
+      const txRef = db.collection(`ledgers/${ledgerId}/transactions`).doc();
+      batch.set(txRef, buildRecurringTransaction(data, ledgerId, userId, nextRunAt));
+    }
+
+    const intervalMonths = Math.max(Number(data.intervalMonths) || 1, 1);
+    const executeDay = Math.min(Math.max(Number(data.executeDay) || nextRunAt.getDate(), 1), 31);
+    const nextDate = addMonthsWithDay(nextRunAt, intervalMonths, executeDay);
+    const updates: Record<string, any> = {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    if (typeof remainingRuns === 'number') {
+      const nextRemaining = remainingRuns - 1;
+      updates.remainingRuns = nextRemaining;
+      if (nextRemaining <= 0) {
+        updates.isActive = false;
+      }
+      if (nextRemaining <= 0) {
+        updates.precreatedFor = admin.firestore.FieldValue.delete();
+      }
+    }
+
+    const shouldPrecreateNext = typeof remainingRuns !== 'number' || remainingRuns - 1 > 0;
+    if (shouldPrecreateNext) {
+      const nextRef = db.collection(`ledgers/${ledgerId}/transactions`).doc();
+      batch.set(nextRef, buildRecurringTransaction(data, ledgerId, userId, nextDate));
+      updates.precreatedFor = admin.firestore.Timestamp.fromDate(nextDate);
+    }
+
+    updates.nextRunAt = admin.firestore.Timestamp.fromDate(nextDate);
+    batch.update(docSnap.ref, updates);
+  });
+
+  await batch.commit();
+  return null;
+});
+
 // 2.1 退出與軟刪除 (Leave Ledger)
 export const leaveLedgerHandler = async (request: any) => {
   if (!request.auth) {
