@@ -1,0 +1,69 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>CloudLedger ?脰?</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              slate: {
+                850: '#1e293b', 
+                950: '#020617', 
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="CloudLedger" />
+
+
+    <meta name="theme-color" content="#ffffff">
+    <style>
+      body { 
+        font-family: 'Inter', sans-serif; 
+        background-color: #f8fafc; 
+        overscroll-behavior-y: none;
+      }
+      html.dark body {
+        background-color: #020617; 
+      }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+      /* 頝收????*/
+      .animate-marquee {
+        animation: marquee 10s linear infinite;
+        white-space: nowrap; /* 蝣箔???銝?銵?*/
+      }
+
+      @keyframes marquee {
+        /* 韏琿?嚗雁???喲? (? React 鋆⊥?撖?left-full嚗ㄐ閮?0 ?喳) */
+        0% { transform: translateX(0); }
+        
+        /* ?? 靽格 2: 蝯??寞????撟祝摨艾?蝣箔?頝?撌阡???閬甇?*/
+        100% { transform: translateX(calc(-100vw - 100%)); } 
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

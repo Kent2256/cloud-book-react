@@ -1,0 +1,24 @@
+﻿// src/constants.ts
+
+// ?身?臬??
+export const DEFAULT_EXPENSE_CATEGORIES = [
+  '擗ㄡ',
+  '鈭日?,
+  '?亙虜',
+  '撅?',
+  '憡?',
+  '?怎?',
+  '?',
+  '?嗡?'
+];
+
+// ?身?嗅??
+export const DEFAULT_INCOME_CATEGORIES = [
+  '?芾?',
+  '??',
+  '??',
+  '?潸',
+  '?嗥??,
+  '暺?',
+  '?嗡?'
+];
