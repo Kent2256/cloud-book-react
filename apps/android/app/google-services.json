@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "622793086532",
+    "project_id": "ledger-butler",
+    "storage_bucket": "ledger-butler.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:622793086532:android:884f79fa404d5a9e16ce11",
+        "android_client_info": {
+          "package_name": "com.krendstudio.cloudledger"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "622793086532-m0iup9tpbvlhv4l7l8uc42vd8r0jnqp1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.krendstudio.cloudledger",
+            "certificate_hash": "7d6a338f7b36c9e46a0fb4aaf14e620281ba1e71"
+          }
+        },
+        {
+          "client_id": "622793086532-gf437v820c61jdpl22k6hc6cvshg60ta.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDxbIfu_WEW0hK1EqGmUbQ8LclNCiuH4m0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "622793086532-gf437v820c61jdpl22k6hc6cvshg60ta.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

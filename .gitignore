@@ -12,6 +12,17 @@ dist
 dist-ssr
 *.local
 
+# Firebase hosting cache
+.firebase/hosting*.cache
+
+# Android (native) build outputs
+apps/android/.gradle/
+apps/android/build/
+
+# Android signing
+apps/frontend/android/key.properties
+apps/frontend/android/*.keystore
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
