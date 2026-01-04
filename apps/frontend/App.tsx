@@ -62,7 +62,7 @@ const SyncControl: React.FC = () => {
 };
 
 const Layout = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'add' | 'list' | 'settings' | 'stats'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'add' | 'list' | 'settings' | 'stats' | 'onboarding'>('dashboard');
   const [voiceAutoStart, setVoiceAutoStart] = useState(false);
   const pressTimerRef = React.useRef<number | null>(null);
   const { currentUser } = useAppContext();
@@ -136,7 +136,8 @@ const Layout = () => {
         {activeTab === 'add' && <AddTransaction autoStartVoice={voiceAutoStart} onComplete={() => { setActiveTab('dashboard'); setVoiceAutoStart(false); }} />}
         {activeTab === 'list' && <TransactionList />}
         {activeTab === 'stats' && <Statistics />}
-        {activeTab === 'settings' && <Settings />}
+        {activeTab === 'settings' && <Settings onEnterOnboarding={() => setActiveTab('onboarding')} />}
+        {activeTab === 'onboarding' && <OnboardingScreen onDone={() => setActiveTab('dashboard')} />}
       </main>
 
       {/* Bottom Navigation */}

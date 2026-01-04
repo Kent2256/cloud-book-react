@@ -1,7 +1,11 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { useAppContext } from '../contexts/AppContext';
 
-const OnboardingScreen: React.FC = () => {
+type OnboardingScreenProps = {
+  onDone?: () => void;
+};
+
+const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onDone }) => {
   const { createLedger, joinLedger, savedLedgers, switchLedger, refreshUserProfile } = useAppContext();
   const [ledgerName, setLedgerName] = useState('');
   const [inviteCode, setInviteCode] = useState('');
@@ -20,6 +24,7 @@ const OnboardingScreen: React.FC = () => {
     try {
       const name = ledgerName.trim() || '未命名帳本';
       await createLedger(name);
+      if (onDone) onDone();
     } catch (e) {
       console.error('Create ledger failed:', e);
       setError('建立帳本失敗，請稍後再試。');
@@ -41,7 +46,9 @@ const OnboardingScreen: React.FC = () => {
       const ok = await joinLedger(code);
       if (!ok) {
         setError('加入帳本失敗，請確認邀請碼是否正確。');
+        return;
       }
+      if (onDone) onDone();
     } catch (e) {
       console.error('Join ledger failed:', e);
       setError('加入帳本失敗，請稍後再試。');
@@ -56,6 +63,7 @@ const OnboardingScreen: React.FC = () => {
     setBusy(true);
     try {
       await switchLedger(id);
+      if (onDone) onDone();
     } catch (e) {
       console.error('Switch ledger failed:', e);
       setError('切換帳本失敗，請稍後再試。');
@@ -68,9 +76,6 @@ const OnboardingScreen: React.FC = () => {
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-br from-amber-100 via-rose-100 to-sky-100 text-slate-900">
       <div className="w-full max-w-md bg-white/90 backdrop-blur rounded-2xl shadow-xl p-6 sm:p-8">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-bold text-xl shadow-md">
-            CL
-          </div>
           <div>
             <h1 className="text-xl font-bold">開始使用 CloudLedger</h1>
             <p className="text-sm text-slate-500">建立新帳本或加入現有帳本</p>

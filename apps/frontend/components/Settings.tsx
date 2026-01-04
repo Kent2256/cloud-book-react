@@ -209,7 +209,11 @@ const CategoryManagerModal = ({ onClose }: { onClose: () => void }) => {
   );
 };
 
-const Settings = () => {
+type SettingsProps = {
+  onEnterOnboarding?: () => void;
+};
+
+const Settings: React.FC<SettingsProps> = ({ onEnterOnboarding }) => {
   const {
     transactions,
     users,
@@ -793,6 +797,20 @@ const Settings = () => {
               </div>
             </form>
           </div>
+
+          {onEnterOnboarding && (
+            <button
+              type="button"
+              onClick={onEnterOnboarding}
+              className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+            >
+              <div className="text-left">
+                <div className="font-bold text-slate-700 dark:text-slate-200">初次設定 / 加入帳本</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">重新進入建立或加入帳本流程</div>
+              </div>
+              <ChevronRightIcon className="w-5 h-5 text-slate-400" />
+            </button>
+          )}
 
           <button
             onClick={() => setShowCategoryModal(true)}
