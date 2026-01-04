@@ -309,7 +309,7 @@ const Dashboard = () => {
 
       {/* Monthly Balance Card */}
       <div 
-        className="relative bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-white shadow-xl cursor-grab active:cursor-grabbing"
+        className="relative bg-gradient-to-br from-sky-50 via-white to-indigo-100 dark:from-slate-800 dark:to-slate-900 rounded-2xl p-6 text-slate-900 dark:text-white shadow-lg border border-slate-200/60 dark:border-transparent cursor-grab active:cursor-grabbing"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         role="region"
@@ -318,7 +318,7 @@ const Dashboard = () => {
         <div className="flex items-center justify-between mb-1"> 
           <button 
             onClick={() => changeMonth(-1)} 
-            className="p-1 text-slate-400 hover:text-white rounded-md transition-colors"
+            className="p-1 text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-md transition-colors"
             aria-label="上一月"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
@@ -328,30 +328,30 @@ const Dashboard = () => {
           </h2>
           <button 
             onClick={() => changeMonth(1)} 
-            className="p-1 text-slate-400 hover:text-white rounded-md transition-colors"
+            className="p-1 text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-md transition-colors"
             aria-label="下一月"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
           </button>
         </div>
-        <div className={`text-4xl font-bold tracking-tight mb-6 ${monthlyStats.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+        <div className={`text-4xl font-bold tracking-tight mb-6 ${monthlyStats.balance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
           {monthlyStats.balance >= 0 ? '+' : ''}{monthlyStats.balance.toLocaleString()}
         </div>
         
-        <div className="grid grid-cols-2 gap-4 border-t border-slate-700/50 pt-4">
+        <div className="grid grid-cols-2 gap-4 border-t border-slate-200/80 dark:border-slate-700/50 pt-4">
           <div>
-            <div className="flex items-center gap-1.5 text-slate-400 mb-0.5">
+            <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 mb-0.5">
               <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
               <span className="text-xs font-semibold uppercase tracking-wider">本月收入</span>
             </div>
-            <div className="text-lg font-semibold text-white" aria-label={`本月收入 ${monthlyStats.income.toLocaleString()}元`}>${monthlyStats.income.toLocaleString()}</div>
+            <div className="text-lg font-semibold text-slate-900 dark:text-white" aria-label={`本月收入 ${monthlyStats.income.toLocaleString()}元`}>${monthlyStats.income.toLocaleString()}</div>
           </div>
           <div>
-            <div className="flex items-center gap-1.5 text-slate-400 mb-0.5">
+            <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 mb-0.5">
               <div className="w-2 h-2 rounded-full bg-rose-500"></div>
               <span className="text-xs font-semibold uppercase tracking-wider">本月支出</span>
             </div>
-            <div className="text-lg font-semibold text-white" aria-label={`本月支出 ${monthlyStats.expense.toLocaleString()}元`}>${monthlyStats.expense.toLocaleString()}</div>
+            <div className="text-lg font-semibold text-slate-900 dark:text-white" aria-label={`本月支出 ${monthlyStats.expense.toLocaleString()}元`}>${monthlyStats.expense.toLocaleString()}</div>
           </div>
         </div>
       </div>
@@ -439,7 +439,7 @@ const Dashboard = () => {
                         {selectedDayTransactions.length > 0 ? (
                             <div className="space-y-3 pb-safe">
                                 {selectedDayTransactions.map(t => {
-                                    const user = getUser(t.creatorUid);
+                                    const user = getUser(t.targetUserUid || t.creatorUid);
                                     const isExpense = t.type === TransactionType.EXPENSE;
                                     return (
                                         <div 
@@ -447,7 +447,7 @@ const Dashboard = () => {
                                             onClick={() => setEditingTxId(t.id)}
                                             className="group relative bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between transition-all active:scale-[0.98] cursor-pointer"
                                             role="listitem"
-                                            aria-label={`${t.description}，金額 ${isExpense ? '-' : '+'}${t.amount.toLocaleString()}元，由 ${user?.displayName || '未知使用者'} 記錄`}
+                                            aria-label={`${t.description}，金額 ${isExpense ? '-' : '+'}${t.amount.toLocaleString()}元，被記帳人 ${user?.displayName || '未知使用者'}`}
                                             tabIndex={0}
                                         >
                                             <div className="flex items-center gap-3">
@@ -473,7 +473,7 @@ const Dashboard = () => {
                                                 </div>
                                                 <div className="flex justify-end mt-1">
                                                     {user && (
-                                                        <img src={user.photoURL || ''} alt={user.displayName || ''} className="w-4 h-4 rounded-full ring-1 ring-white dark:ring-slate-700 bg-slate-200 dark:bg-slate-600" title={`記錄者：${user.displayName || '訪客'}`} />
+                                                        <img src={user.photoURL || ''} alt={user.displayName || ''} className="w-4 h-4 rounded-full ring-1 ring-white dark:ring-slate-700 bg-slate-200 dark:bg-slate-600" title={`被記帳人：${user.displayName || '訪客'}`} />
                                                     )}
                                                 </div>
                                             </div>
