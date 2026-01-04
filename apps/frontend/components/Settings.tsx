@@ -985,6 +985,16 @@ const Settings = () => {
         <ChevronRightIcon className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 group-hover:translate-x-1 transition-all" />
       </button>
 
+      <SectionCard title="聯絡信箱" description="有任何問題，歡迎來信。">
+        <a
+          href="mailto:chian0163@gmail.com"
+          className="flex items-center justify-between rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-4 py-3 text-sm text-slate-700 dark:text-slate-200 hover:border-indigo-300 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+        >
+          <span>chian0163@gmail.com</span>
+          <span className="text-xs text-slate-400">寄信</span>
+        </a>
+      </SectionCard>
+
       <div className="text-center text-xs text-slate-400 py-4">
         CloudLedger 雲記 v3.5.2 © 2025 KrendStudio
       </div>
